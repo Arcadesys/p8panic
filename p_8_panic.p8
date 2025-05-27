@@ -816,6 +816,336 @@ function update_controls()
     end
   end
 end
+-->8
+-- src/scoring.lua
+
+local scoring = {}
+
+--[[
+  Counts the number of attackers targeting a specific defender.
+  
+  Parameters:
+  - defender_id: The unique identifier of the defender piece.
+  - pieces: A table containing all game pieces currently in play.
+            Each piece is expected to be a table with at least:
+            - type: string, "attacker" or "defender"
+            - target_defender_id: (for attackers) the id of the defender they are targeting
+            
+  Returns:
+  - number: The count of attackers targeting the specified defender.
+--]]
+function scoring.count_attackers_on_defender(defender_id, pieces)
+  local count = 0
+  if pieces then
+    for _, piece in ipairs(pieces) do
+      if piece.type == "attacker" and piece.target_defender_id == defender_id then
+        count = count + 1
+      end
+    end
+  end
+  return count
+end
+
+--[[
+  Recalculates the scores for all players based on the current state of pieces.
+  
+  Parameters:
+  - pieces: A table containing all game pieces currently in play.
+            Each piece is expected to be a table with at least:
+            - id: unique identifier for the piece
+            - type: string, "attacker" or "defender"
+            - player_id: identifier for the player who owns this piece
+            - target_defender_id: (for attackers) the id of the defender they are targeting
+  - players: A table (array-like, 1-indexed) of player objects. 
+             Each player object should have a 'score' field that will be updated.
+
+  Side Effects:
+  - Modifies the 'score' field of each player object in the 'players' table.
+--]]
+function scoring.recalculate_player_scores(pieces, players)
+  if not pieces or not players then
+    -- Or handle error appropriately
+    return 
+  end
+
+  -- Reset scores for all players
+  for i = 1, #players do
+    if players[i] then
+      players[i].score = 0
+    end
+  end
+
+  -- Calculate scores based on current pieces
+  for _, piece in ipairs(pieces) do
+    if piece.player_id and players[piece.player_id] then -- Ensure piece owner and player entry exist
+      if piece.type == "attacker" then
+        local target_defender = nil
+        local target_defender_owner_id = nil
+
+        -- Find the defender this attacker is pointing to and its owner
+        if piece.target_defender_id then
+          for _, p_defender_check in ipairs(pieces) do
+            if p_defender_check.id == piece.target_defender_id and p_defender_check.type == "defender" then
+              target_defender = p_defender_check
+              target_defender_owner_id = p_defender_check.player_id
+              break
+            end
+          end
+        end
+
+        if target_defender then
+          -- Rule: "if that attacker is pointed at a defender of its own color, it scores no points."
+          if piece.player_id == target_defender_owner_id then
+            -- Attacker scores 0 points
+          else
+            local attackers_on_target = scoring.count_attackers_on_defender(piece.target_defender_id, pieces)
+            -- Rule: "attackers succeed if there are 2+ attackers pointed toward the same defender"
+            if attackers_on_target >= 2 then
+              players[piece.player_id].score = players[piece.player_id].score + 1
+            end
+          end
+        end
+      elseif piece.type == "defender" then
+        local attackers_on_this_defender = scoring.count_attackers_on_defender(piece.id, pieces)
+        -- Rule: "Defenders succeed if there are 0-1 attackers pointed at the same defender."
+        if attackers_on_this_defender < 2 then
+          players[piece.player_id].score = players[piece.player_id].score + 1
+        end
+      end
+    end
+  end
+end
+
+return scoring
+-->8
+-- src/player.lua
+
+local player = {}
+
+player.colors = {
+  [1] = 12, -- Player 1: Light Blue
+  [2] = 8,  -- Player 2: Red
+  [3] = 11, -- Player 3: Green
+  [4] = 10  -- Player 4: Yellow
+}
+
+player.max_players = 4
+player.current_players = {} -- Table to hold active player data
+
+-- Function to initialize players at the start of a game
+function player.init_players(num_players)
+  if num_players < 1 or num_players > player.max_players then
+    print("Error: Invalid number of players. Must be between 1 and " .. player.max_players)
+    return
+  end
+
+  player.current_players = {} -- Reset current players
+
+  for i = 1, num_players do
+    player.current_players[i] = {
+      id = i,
+      score = 0,
+      color = player.colors[i],
+      pieces_placed = 0, -- To track how many of their 6 pieces they've used
+      -- Add other player-specific attributes here as needed
+      -- e.g., last_defender_lost_time = 0
+    }
+  end
+  
+  print("Initialized " .. num_players .. " players.")
+end
+
+-- Function to get a player's data
+function player.get_player_data(player_id)
+  return player.current_players[player_id]
+end
+
+-- Function to get a player's color
+function player.get_player_color(player_id)
+  if player.current_players[player_id] then
+    return player.current_players[player_id].color
+  else
+    return 7 -- Default to white if player not found, or handle error
+  end
+end
+
+-- Example: Initialize for a 3-player game
+-- player.init_players(3) 
+
+-- Example: Get color for player 1
+-- local p1_color = player.get_player_color(1)
+-- print("Player 1 color: " .. (p1_color or "not found"))
+
+
+return player
+-->8
+-- src/ui.lua
+
+local ui = {}
+
+-- Requires player.lua to be loaded first for player.get_player_data and player.get_player_color
+-- Requires scoring.lua for any score-specific display logic if needed directly here
+
+-- Function to draw the score display at the bottom of the screen
+-- Assumes screen height is 128px, reserves bottom 8px (y=120 to y=127)
+function ui.draw_score_display(players_table)
+  local screen_width = 128
+  local display_height = 8
+  local start_y = 128 - display_height
+
+  -- Clear the score display area (optional, if not cleared elsewhere)
+  -- rectfill(0, start_y, screen_width -1 , start_y + display_height -1, 0) -- Black background
+
+  if not players_table then
+    print("ui.draw_score_display: players_table is nil")
+    return
+  end
+
+  local num_players = #players_table
+  if num_players == 0 then
+    -- print("No players to display scores for.")
+    return
+  end
+  
+  local section_width = flr(screen_width / num_players)
+  local current_x = 0
+
+  for i = 1, num_players do
+    local player_data = players_table[i]
+    if player_data then
+      local player_score = player_data.score or 0 -- Default to 0 if score is nil
+      local player_color = player_data.color or 7 -- Default to white if color is nil
+      
+      -- Display format: "P<id>: <score>"
+      -- Pico-8 print function: print(str, x, y, color)
+      -- We need to make sure text fits. A simple score display for now.
+      local score_text = "P"..i.." "..player_score
+      
+      -- Calculate text position to center it (approximately) in its section
+      -- Pico-8 default font is 4px wide per char. Length of "PX S" is 4 chars.
+      -- For longer scores, this might need adjustment or a smaller font.
+      local text_width = #score_text * 4 -- Approximate width
+      local text_x = current_x + flr((section_width - text_width) / 2)
+      local text_y = start_y + 1 -- Small padding from the top of the score bar
+
+      -- Draw a small colored rectangle for the player
+      rectfill(current_x, start_y, current_x + section_width -1, start_y + display_height -1, player_color)
+      -- Print score text on top, in a contrasting color (e.g., black or white depending on player_color)
+      local text_color = 0 -- Black
+      if player_color == 0 or player_color == 1 or player_color == 6 or player_color == 7 then -- Dark colors
+          text_color = 7 -- White
+      end
+      print(score_text, text_x, text_y, text_color)
+      
+      current_x = current_x + section_width
+    else
+      -- print("Player data not found for player " .. i)
+    end
+  end
+end
+
+return ui
+-->8
+-- src/scoring.lua
+
+local scoring = {}
+
+--[[
+  Counts the number of attackers targeting a specific defender.
+  
+  Parameters:
+  - defender_id: The unique identifier of the defender piece.
+  - pieces: A table containing all game pieces currently in play.
+            Each piece is expected to be a table with at least:
+            - type: string, "attacker" or "defender"
+            - target_defender_id: (for attackers) the id of the defender they are targeting
+            
+  Returns:
+  - number: The count of attackers targeting the specified defender.
+--]]
+function scoring.count_attackers_on_defender(defender_id, pieces)
+  local count = 0
+  if pieces then
+    for _, piece in ipairs(pieces) do
+      if piece.type == "attacker" and piece.target_defender_id == defender_id then
+        count = count + 1
+      end
+    end
+  end
+  return count
+end
+
+--[[
+  Recalculates the scores for all players based on the current state of pieces.
+  
+  Parameters:
+  - pieces: A table containing all game pieces currently in play.
+            Each piece is expected to be a table with at least:
+            - id: unique identifier for the piece
+            - type: string, "attacker" or "defender"
+            - player_id: identifier for the player who owns this piece
+            - target_defender_id: (for attackers) the id of the defender they are targeting
+  - players: A table (array-like, 1-indexed) of player objects. 
+             Each player object should have a 'score' field that will be updated.
+
+  Side Effects:
+  - Modifies the 'score' field of each player object in the 'players' table.
+--]]
+function scoring.recalculate_player_scores(pieces, players)
+  if not pieces or not players then
+    -- Or handle error appropriately
+    return 
+  end
+
+  -- Reset scores for all players
+  for i = 1, #players do
+    if players[i] then
+      players[i].score = 0
+    end
+  end
+
+  -- Calculate scores based on current pieces
+  for _, piece in ipairs(pieces) do
+    if piece.player_id and players[piece.player_id] then -- Ensure piece owner and player entry exist
+      if piece.type == "attacker" then
+        local target_defender = nil
+        local target_defender_owner_id = nil
+
+        -- Find the defender this attacker is pointing to and its owner
+        if piece.target_defender_id then
+          for _, p_defender_check in ipairs(pieces) do
+            if p_defender_check.id == piece.target_defender_id and p_defender_check.type == "defender" then
+              target_defender = p_defender_check
+              target_defender_owner_id = p_defender_check.player_id
+              break
+            end
+          end
+        end
+
+        if target_defender then
+          -- Rule: "if that attacker is pointed at a defender of its own color, it scores no points."
+          if piece.player_id == target_defender_owner_id then
+            -- Attacker scores 0 points
+          else
+            local attackers_on_target = scoring.count_attackers_on_defender(piece.target_defender_id, pieces)
+            -- Rule: "attackers succeed if there are 2+ attackers pointed toward the same defender"
+            if attackers_on_target >= 2 then
+              players[piece.player_id].score = players[piece.player_id].score + 1
+            end
+          end
+        end
+      elseif piece.type == "defender" then
+        local attackers_on_this_defender = scoring.count_attackers_on_defender(piece.id, pieces)
+        -- Rule: "Defenders succeed if there are 0-1 attackers pointed at the same defender."
+        if attackers_on_this_defender < 2 then
+          players[piece.player_id].score = players[piece.player_id].score + 1
+        end
+      end
+    end
+  end
+end
+
+return scoring
 __gfx__
 00000000aaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000a9999999999999999999999a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
