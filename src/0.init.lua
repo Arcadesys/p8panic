@@ -15,7 +15,7 @@ end
 --p8panic
 --A game of tactical geometry.
 
--- luacheck: globals cls btn btnp rect rectfill add all max min
+-- luacheck: globals cls btn btnp rect rectfill add all max min pieces cursor_x cursor_y pending_type control_state pending_color pending_orientation current_player
 cursor_x=64-4
 cursor_y=64-4
 pieces={}
@@ -101,109 +101,75 @@ function _draw()
       goto continue_loop
     end
 
-    local piece_color = 7 -- Default for defender
+    -- Draw the piece (triangle or rectangle)
+    local color_to_use = p.owner or 7 -- Default to white if no owner
     if p.type == "attacker" then
-      piece_color = 8 -- Red for attacker
-    elseif p.type == nil then
-      -- print("Warning: Piece type is nil for piece "..i, 0, 40, 13)
-      piece_color = 2 -- Dark blue for nil type, to make it visible
-    end
+      -- Draw filled triangle
+      -- PICO-8 doesn't have a direct filled polygon function.
+      -- We can draw 3 lines for the outline, or use a small trick for filled.
+      -- For simplicity, let's use line drawing for the triangle outline.
+      -- For a filled look, one might use multiple `line` calls or `circfill` if shape allows.
+      -- A common way is to sort vertices by y and fill scanlines, but that's complex.
+      -- Simplest for now: draw lines connecting vertices.
+      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, color_to_use)
+      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, color_to_use)
+      line(vertices[3].x, vertices[3].y, vertices[1].x, vertices[1].y, color_to_use)
 
-    if piece_color == 0 then
-      -- print("Warning: piece_color is 0 for piece "..i.." type: "..(p.type or "nil"), 0, 48, 8)
-      piece_color = 7 -- Fallback to white if color somehow became 0
-    end
-
-    -- Draw the piece by connecting its vertices
-    if #vertices == 3 then -- Triangle (attacker)
-      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, piece_color)
-      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, piece_color)
-      line(vertices[3].x, vertices[3].y, vertices[1].x, vertices[1].y, piece_color)
-
-      -- Draw animated (dancing ants) laser from apex, stopping at first collision
-      local nose_x = vertices[1].x
-      local nose_y = vertices[1].y
-      local laser_length = 64
-      local o = p.orientation
-      local laser_dx = cos(o)
-      local laser_dy = sin(o)
-      local phase = flr(time()*8)%8 -- Animate the pattern
-      local hit = false
-      for i=0,laser_length-1 do
-        local lx = nose_x + i*laser_dx
-        local ly = nose_y + i*laser_dy
-        -- Check collision with all pieces except self
-        for j=1,#pieces do
-          local op = pieces[j]
-          if op ~= p then
-            local op_vertices = get_piece_draw_vertices(op)
-            if point_in_polygon(lx, ly, op_vertices) then
-              hit = true
-              break
-            end
-          end
-        end
-        if hit then break end
-        -- Reverse the flow: subtract phase instead of add
-        if ((i-phase+8)%8)<4 then -- 4 on, 4 off, reversed
-          pset(lx, ly, 9) -- Orange for laser
-        end
+      -- If in capture mode, draw a purple circle around attackers
+      if pending_type == "capture" then
+        circ(p.position.x, p.position.y, attacker_triangle_height / 2 + 2, 13) -- Purple circle (color 13)
       end
--- Helper: Point-in-polygon (works for convex polygons, including triangles and quads)
-point_in_polygon = function(px, py, vertices)
-  local inside = false
-  local n = #vertices
-  for i=1,n do
-    local j = (i % n) + 1
-    local xi, yi = vertices[i].x, vertices[i].y
-    local xj, yj = vertices[j].x, vertices[j].y
-    if ((yi > py) ~= (yj > py)) and (px < (xj - xi) * (py - yi) / ((yj - yi) + 0.0001) + xi) then
-      inside = not inside
+    else -- Defender (rectangle)
+      -- rectfill(p.position.x - defender_width/2, p.position.y - defender_height/2, p.position.x + defender_width/2, p.position.y + defender_height/2, color_to_use)
+      -- Use polygon drawing for consistency, even for squares
+      -- This requires get_piece_draw_vertices to return 4 vertices for a square
+      -- For a filled quad, we can draw two triangles or use a rectfill if axis-aligned.
+      -- Since it can be rotated, we draw lines for the outline.
+      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, color_to_use)
+      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, color_to_use)
+      line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, color_to_use)
+      line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, color_to_use)
     end
-  end
-  return inside
-end
-    elseif #vertices == 4 then -- Square (defender)
-      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, piece_color)
-      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, piece_color)
-      line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, piece_color)
-      line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, piece_color)
-    end
+
     ::continue_loop::
   end
 
-  -- Always render the ghost piece (placement preview) at the cursor, regardless of mode
-  local preview_piece_type = pending_type or "defender"
-  local preview_center_x = cursor_x + defender_width/2
-  local preview_center_y = cursor_y + defender_height/2
-  local cursor_preview_piece = {
-    position = { x = preview_center_x, y = preview_center_y },
-    orientation = pending_orientation,
-    type = preview_piece_type
-  }
-  local vertices = get_piece_draw_vertices(cursor_preview_piece)
-  local preview_shape_color = 13 -- Pink for defender preview
-  if preview_piece_type == "attacker" then
-    preview_shape_color = 10 -- Light blue for attacker preview
-  end
-  if #vertices == 3 then -- Triangle
-      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, preview_shape_color)
-      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, preview_shape_color)
-      line(vertices[3].x, vertices[3].y, vertices[1].x, vertices[1].y, preview_shape_color)
-  elseif #vertices == 4 then -- Square
-      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, preview_shape_color)
-      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, preview_shape_color)
-      line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, preview_shape_color)
-      line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, preview_shape_color)
-  end
-  if preview_piece_type == "attacker" then
-    -- Laser originates from the apex of the triangle (vertices[1])
-    local nose_x = vertices[1].x
-    local nose_y = vertices[1].y
-    local laser_length = 64
-    local o = cursor_preview_piece.orientation
-    local laser_end_x = nose_x + laser_length * cos(o)
-    local laser_end_y = nose_y + laser_length * sin(o)
-    line(nose_x, nose_y, laser_end_x, laser_end_y, 9)
+  -- Draw cursor based on mode
+  if control_state == 0 then -- Movement mode
+    if pending_type == "defender" then
+      rect(cursor_x, cursor_y, cursor_x + 7, cursor_y + 7, 7) -- White square for defender
+    elseif pending_type == "attacker" then
+      -- Draw a small triangle preview for attacker (simplified)
+      local cx, cy = cursor_x + 4, cursor_y + 4 -- Center of cursor cell
+      line(cx + 4, cy, cx - 2, cy - 3, 7)
+      line(cx - 2, cy - 3, cx - 2, cy + 3, 7)
+      line(cx - 2, cy + 3, cx + 4, cy, 7)
+    elseif pending_type == "capture" then
+      -- Draw a small crosshair for capture mode
+      local cx, cy = cursor_x + 4, cursor_y + 4 -- Center of cursor cell
+      line(cx - 2, cy, cx + 2, cy, 7) -- Horizontal line
+      line(cx, cy - 2, cx, cy + 2, 7) -- Vertical line
+    end
+  elseif control_state == 1 then -- Rotation/Confirmation mode
+    -- Draw pending piece with orientation and color
+    local temp_piece = {
+      owner = pending_color,
+      type = pending_type,
+      position = { x = cursor_x + 4, y = cursor_y + 4 },
+      orientation = pending_orientation
+    }
+    local vertices = get_piece_draw_vertices(temp_piece)
+    if vertices and #vertices >=3 then
+      if temp_piece.type == "attacker" then
+        line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, pending_color)
+        line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, pending_color)
+        line(vertices[3].x, vertices[3].y, vertices[1].x, vertices[1].y, pending_color)
+      else -- Defender
+        line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, pending_color)
+        line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, pending_color)
+        line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, pending_color)
+        line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, pending_color)
+      end
+    end
   end
 end
