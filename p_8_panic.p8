@@ -1,6 +1,20 @@
 pico-8 cartridge // http://www.pico-8.com
 version 42
 __lua__
+-- Helper: Point-in-polygon (works for convex polygons, including triangles and quads)
+function point_in_polygon(px, py, vertices)
+  local inside = false
+  local n = #vertices
+  for i=1,n do
+    local j = (i % n) + 1
+    local xi, yi = vertices[i].x, vertices[i].y
+    local xj, yj = vertices[j].x, vertices[j].y
+    if ((yi > py) ~= (yj > py)) and (px < (xj - xi) * (py - yi) / ((yj - yi) + 0.0001) + xi) then
+      inside = not inside
+    end
+  end
+  return inside
+end
 --p8panic
 --A game of tactical geometry.
 
@@ -9,35 +23,48 @@ cursor_x=64-4
 cursor_y=64-4
 pieces={}
 
--- Piece dimensions (consistent with placement.lua)
-local piece_width = 8
-local piece_height = 8
+-- Piece dimensions
+local defender_width = 8
+local defender_height = 8
+local attacker_triangle_height = 8 -- Height along orientation axis
+local attacker_triangle_base = 6   -- Base perpendicular to orientation
 
 -- Helper function to get rotated vertices for drawing
--- (Similar to the one in placement.lua, but might be adapted for drawing needs if different)
 function get_piece_draw_vertices(piece)
-    local w, h = piece_width, piece_height -- Or from piece.type if dynamic
-    local x, y = piece.position.x, piece.position.y
     local o = piece.orientation -- PICO-8 orientation (0-1)
+    -- Rotation center is piece.position
+    local cx = piece.position.x
+    local cy = piece.position.y
 
-    -- Center of the piece for rotation
-    local cx = x + w / 2
-    local cy = y + h / 2
+    local local_corners = {}
 
-    -- Half-width and half-height
-    local hw = w / 2
-    local hh = h / 2
-
-    -- Local corner coordinates (relative to center, before rotation)
-    -- Order: top-left, top-right, bottom-right, bottom-left
-    local local_corners = {
-        {x = -hw, y = -hh}, {x = hw, y = -hh},
-        {x = hw, y = hh},   {x = -hw, y = hh}
-    }
+    if piece.type == "attacker" then
+        -- Attacker is a triangle: height 8 (along orientation), base 6
+        -- Apex points along the orientation vector
+        -- Local coords relative to (cx,cy) which is piece.position
+        -- Apex: (height/2, 0)
+        -- Base 1: (-height/2, base_width/2)
+        -- Base 2: (-height/2, -base_width/2)
+        local h = attacker_triangle_height
+        local b = attacker_triangle_base
+        add(local_corners, {x = h/2, y = 0})      -- Apex
+        add(local_corners, {x = -h/2, y = b/2})   -- Base corner 1
+        add(local_corners, {x = -h/2, y = -b/2})  -- Base corner 2
+    else -- Default to defender (square)
+        local w, h = defender_width, defender_height
+        -- Local corner coordinates (relative to center piece.position)
+        -- For a square centered at (0,0) local_pos:
+        -- Top-left, top-right, bottom-right, bottom-left
+        local hw = w / 2
+        local hh = h / 2
+        add(local_corners, {x = -hw, y = -hh})
+        add(local_corners, {x = hw, y = -hh})
+        add(local_corners, {x = hw, y = hh})
+        add(local_corners, {x = -hw, y = hh})
+    end
 
     local world_corners = {}
     for lc in all(local_corners) do
-        -- PICO-8 cos/sin use 0..1 for angle
         local rotated_x = lc.x * cos(o) - lc.y * sin(o)
         local rotated_y = lc.x * sin(o) + lc.y * cos(o)
         add(world_corners, {x = cx + rotated_x, y = cy + rotated_y})
@@ -52,36 +79,135 @@ end
 
 function _draw()
   cls(0)
-  -- draw defenders
-  for p in all(pieces) do
-    if p.type=="defender" then
-      local vertices = get_piece_draw_vertices(p)
-      -- Draw the rotated piece by connecting its vertices
-      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, 7) -- Top edge
-      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, 7) -- Right edge
-      line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, 7) -- Bottom edge
-      line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, 7) -- Left edge
+  -- print("#pieces: "..#pieces, 0, 0, 7) -- Debug: show number of pieces
+
+  -- draw placed pieces
+  for i=1,#pieces do
+    local p = pieces[i]
+    -- Debug: Print piece properties
+    -- local debug_y = (i-1)*6
+    -- print("p"..i.." t:"..(p.type or "NIL").." c:"..(p.owner or "NIL").." o:"..(p.orientation or "NIL"), 0, debug_y, 7)
+    -- if p.position then
+    --   print("x:"..(p.position.x or "NIL").." y:"..(p.position.y or "NIL"), 60, debug_y, 7)
+    -- else
+    --   print("pos:NIL", 60, debug_y, 7)
+    -- end
+
+    if not p or not p.position or p.orientation == nil then
+      -- print("Skipping draw for invalid piece "..i, 0, 50, 8) -- Debug
+      goto continue_loop -- Skip drawing this piece if essential data is missing
+    end
+
+    local vertices = get_piece_draw_vertices(p)
+    if not vertices or #vertices < 3 then -- Need at least 3 for triangle
+      -- print("Skipping draw for invalid vertices for piece "..i, 0, 56, 8) -- Debug
+      goto continue_loop
+    end
+
+    local piece_color = 7 -- Default for defender
+    if p.type == "attacker" then
+      piece_color = 8 -- Red for attacker
+    elseif p.type == nil then
+      -- print("Warning: Piece type is nil for piece "..i, 0, 40, 13)
+      piece_color = 2 -- Dark blue for nil type, to make it visible
+    end
+
+    if piece_color == 0 then
+      -- print("Warning: piece_color is 0 for piece "..i.." type: "..(p.type or "nil"), 0, 48, 8)
+      piece_color = 7 -- Fallback to white if color somehow became 0
+    end
+
+    -- Draw the piece by connecting its vertices
+    if #vertices == 3 then -- Triangle (attacker)
+      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, piece_color)
+      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, piece_color)
+      line(vertices[3].x, vertices[3].y, vertices[1].x, vertices[1].y, piece_color)
+
+      -- Draw animated (dancing ants) laser from apex, stopping at first collision
+      local nose_x = vertices[1].x
+      local nose_y = vertices[1].y
+      local laser_length = 64
+      local o = p.orientation
+      local laser_dx = cos(o)
+      local laser_dy = sin(o)
+      local phase = flr(time()*8)%8 -- Animate the pattern
+      local hit = false
+      for i=0,laser_length-1 do
+        local lx = nose_x + i*laser_dx
+        local ly = nose_y + i*laser_dy
+        -- Check collision with all pieces except self
+        for j=1,#pieces do
+          local op = pieces[j]
+          if op ~= p then
+            local op_vertices = get_piece_draw_vertices(op)
+            if point_in_polygon(lx, ly, op_vertices) then
+              hit = true
+              break
+            end
+          end
+        end
+        if hit then break end
+        -- Reverse the flow: subtract phase instead of add
+        if ((i-phase+8)%8)<4 then -- 4 on, 4 off, reversed
+          pset(lx, ly, 9) -- Orange for laser
+        end
+      end
+-- Helper: Point-in-polygon (works for convex polygons, including triangles and quads)
+point_in_polygon = function(px, py, vertices)
+  local inside = false
+  local n = #vertices
+  for i=1,n do
+    local j = (i % n) + 1
+    local xi, yi = vertices[i].x, vertices[i].y
+    local xj, yj = vertices[j].x, vertices[j].y
+    if ((yi > py) ~= (yj > py)) and (px < (xj - xi) * (py - yi) / ((yj - yi) + 0.0001) + xi) then
+      inside = not inside
     end
   end
+  return inside
+end
+    elseif #vertices == 4 then -- Square (defender)
+      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, piece_color)
+      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, piece_color)
+      line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, piece_color)
+      line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, piece_color)
+    end
+    ::continue_loop::
+  end
 
-  -- draw cursor / placement preview
-  -- control_state and pending_orientation are global vars from 6.controls.lua
-  if control_state == 1 then -- Rotate/confirm mode
-    local cursor_preview_piece = {
-      position = { x = cursor_x, y = cursor_y },
-      orientation = pending_orientation,
-      -- type = "cursor" -- Not strictly needed for get_piece_draw_vertices if width/height are fixed
-    }
-    local vertices = get_piece_draw_vertices(cursor_preview_piece)
-    -- Draw the rotated cursor preview (e.g., in a different color or style)
-    -- Using color 13 (pink) for preview
-    line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, 13)
-    line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, 13)
-    line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, 13)
-    line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, 13)
-  else -- Movement mode
-    -- Draw cursor outline as a simple square
-    rect(cursor_x,cursor_y,cursor_x+7,cursor_y+7,7)
+  -- Always render the ghost piece (placement preview) at the cursor, regardless of mode
+  local preview_piece_type = pending_type or "defender"
+  local preview_center_x = cursor_x + defender_width/2
+  local preview_center_y = cursor_y + defender_height/2
+  local cursor_preview_piece = {
+    position = { x = preview_center_x, y = preview_center_y },
+    orientation = pending_orientation,
+    type = preview_piece_type
+  }
+  local vertices = get_piece_draw_vertices(cursor_preview_piece)
+  local preview_shape_color = 13 -- Pink for defender preview
+  if preview_piece_type == "attacker" then
+    preview_shape_color = 10 -- Light blue for attacker preview
+  end
+  if #vertices == 3 then -- Triangle
+      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, preview_shape_color)
+      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, preview_shape_color)
+      line(vertices[3].x, vertices[3].y, vertices[1].x, vertices[1].y, preview_shape_color)
+  elseif #vertices == 4 then -- Square
+      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, preview_shape_color)
+      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, preview_shape_color)
+      line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, preview_shape_color)
+      line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, preview_shape_color)
+  end
+  if preview_piece_type == "attacker" then
+    -- Laser originates from the apex of the triangle (vertices[1])
+    local nose_x = vertices[1].x
+    local nose_y = vertices[1].y
+    local laser_length = 64
+    local o = cursor_preview_piece.orientation
+    local laser_end_x = nose_x + laser_length * cos(o)
+    local laser_end_y = nose_y + laser_length * sin(o)
+    line(nose_x, nose_y, laser_end_x, laser_end_y, 9)
   end
 end
 -->8
@@ -203,10 +329,12 @@ end
 -->8
 --placement
 function legal_placement(piece_to_place)
-    -- Configuration for placement logic (adjust if necessary)
-    local piece_width = 8
-    local piece_height = 8
-    local board_w = 128 -- Assuming 128x128 board
+    -- Configuration for placement logic
+    local defender_width = 8
+    local defender_height = 8
+    local attacker_triangle_height = 8
+    local attacker_triangle_base = 6
+    local board_w = 128
     local board_h = 128
 
     -- Helper: Vector subtraction v1 - v2
@@ -221,28 +349,34 @@ function legal_placement(piece_to_place)
 
     -- Helper: Get the world-space coordinates of a piece's corners
     function get_rotated_vertices(piece)
-        local w, h = piece_width, piece_height -- Or from piece.type if dynamic
-        local x, y = piece.position.x, piece.position.y
-        local o = piece.orientation -- PICO-8 orientation (0-1)
+        local o = piece.orientation
+        -- For placement, piece.position is the intended center of the piece.
+        local cx = piece.position.x
+        local cy = piece.position.y
 
-        -- Center of the piece
-        local cx = x + w / 2
-        local cy = y + h / 2
+        local local_corners = {}
 
-        -- Half-width and half-height
-        local hw = w / 2
-        local hh = h / 2
-
-        -- Local corner coordinates (relative to center, before rotation)
-        -- Order: top-left, top-right, bottom-right, bottom-left
-        local local_corners = {
-            {x = -hw, y = -hh}, {x = hw, y = -hh},
-            {x = hw, y = hh},   {x = -hw, y = hh}
-        }
+        if piece.type == "attacker" then
+            local h = attacker_triangle_height
+            local b = attacker_triangle_base
+            -- Apex: (h/2, 0) relative to center, along orientation
+            -- Base 1: (-h/2, b/2)
+            -- Base 2: (-h/2, -b/2)
+            add(local_corners, {x = h/2, y = 0})
+            add(local_corners, {x = -h/2, y = b/2})
+            add(local_corners, {x = -h/2, y = -b/2})
+        else -- Defender (square)
+            local w, h = defender_width, defender_height
+            local hw = w / 2
+            local hh = h / 2
+            add(local_corners, {x = -hw, y = -hh})
+            add(local_corners, {x = hw, y = -hh})
+            add(local_corners, {x = hw, y = hh})
+            add(local_corners, {x = -hw, y = hh})
+        end
 
         local world_corners = {}
         for lc in all(local_corners) do
-            -- PICO-8 cos/sin use 0..1 for angle
             local rotated_x = lc.x * cos(o) - lc.y * sin(o)
             local rotated_y = lc.x * sin(o) + lc.y * cos(o)
             add(world_corners, {x = cx + rotated_x, y = cy + rotated_y})
@@ -301,6 +435,8 @@ function legal_placement(piece_to_place)
 
     -- 1. Boundary Check: Ensure all corners of the piece are within board limits
     local world_corners = get_rotated_vertices(piece_to_place)
+    if not world_corners or #world_corners < 3 then return false end -- Not enough vertices
+
     for corner in all(world_corners) do
         if corner.x < 0 or corner.x > board_w or
            corner.y < 0 or corner.y > board_h then
@@ -466,7 +602,8 @@ control_state = 0
 pending_orientation = 0 -- Angle in PICO-8 format (0-1 for 0-360 degrees, 0 is right/east)
 -- To make 0 = Up for easier visual start, we can initialize to 0.75 (270 degrees)
 pending_orientation = 0.75
-pending_color = 1 -- Default to player 1's color, or current_player
+pending_color = 1 -- Default to player 1\'s color, or current_player
+pending_type = "defender" -- "defender" or "attacker"
 
 -- Helper function to wrap angle between 0 and 1
 function wrap_angle(angle)
@@ -481,6 +618,17 @@ function update_controls()
     if btn(1) then cursor_x = min(cursor_x+1, 128-8) end
     if btn(2) then cursor_y = max(cursor_y-1, 0) end
     if btn(3) then cursor_y = min(cursor_y+1, 128-8) end
+
+    -- Toggle piece type with secondary (🅾️/X/5) in movement mode
+    if btnp(5) then
+      if pending_type == "defender" then
+        pending_type = "attacker"
+      else
+        pending_type = "defender"
+      end
+      -- Optionally, add some feedback like a sound or visual cue for type change
+    end
+
     -- enter rotation/confirmation mode with primary (❎/Z/4)
     if btnp(4) then
       control_state = 1
@@ -505,10 +653,11 @@ function update_controls()
     if btnp(4) then
       local placed_piece_x = cursor_x
       local placed_piece_y = cursor_y
+      -- Place at the center of the cell (assuming 8x8 grid)
       add(pieces, {
         owner = pending_color, -- Use selected color
-        type = "defender", -- Assuming defender for now, will need to adapt for attackers
-        position = { x = placed_piece_x, y = placed_piece_y },
+        type = pending_type, -- Use selected type
+        position = { x = placed_piece_x + 4, y = placed_piece_y + 4 },
         orientation = pending_orientation -- Store the angle
       })
       control_state = 0 -- Return to movement mode

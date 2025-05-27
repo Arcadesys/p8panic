@@ -6,7 +6,8 @@ control_state = 0
 pending_orientation = 0 -- Angle in PICO-8 format (0-1 for 0-360 degrees, 0 is right/east)
 -- To make 0 = Up for easier visual start, we can initialize to 0.75 (270 degrees)
 pending_orientation = 0.75
-pending_color = 1 -- Default to player 1's color, or current_player
+pending_color = 1 -- Default to player 1\'s color, or current_player
+pending_type = "defender" -- "defender" or "attacker"
 
 -- Helper function to wrap angle between 0 and 1
 function wrap_angle(angle)
@@ -21,6 +22,17 @@ function update_controls()
     if btn(1) then cursor_x = min(cursor_x+1, 128-8) end
     if btn(2) then cursor_y = max(cursor_y-1, 0) end
     if btn(3) then cursor_y = min(cursor_y+1, 128-8) end
+
+    -- Toggle piece type with secondary (🅾️/X/5) in movement mode
+    if btnp(5) then
+      if pending_type == "defender" then
+        pending_type = "attacker"
+      else
+        pending_type = "defender"
+      end
+      -- Optionally, add some feedback like a sound or visual cue for type change
+    end
+
     -- enter rotation/confirmation mode with primary (❎/Z/4)
     if btnp(4) then
       control_state = 1
@@ -45,10 +57,11 @@ function update_controls()
     if btnp(4) then
       local placed_piece_x = cursor_x
       local placed_piece_y = cursor_y
+      -- Place at the center of the cell (assuming 8x8 grid)
       add(pieces, {
         owner = pending_color, -- Use selected color
-        type = "defender", -- Assuming defender for now, will need to adapt for attackers
-        position = { x = placed_piece_x, y = placed_piece_y },
+        type = pending_type, -- Use selected type
+        position = { x = placed_piece_x + 4, y = placed_piece_y + 4 },
         orientation = pending_orientation -- Store the angle
       })
       control_state = 0 -- Return to movement mode

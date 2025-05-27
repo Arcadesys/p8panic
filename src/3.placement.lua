@@ -1,8 +1,10 @@
 function legal_placement(piece_to_place)
-    -- Configuration for placement logic (adjust if necessary)
-    local piece_width = 8
-    local piece_height = 8
-    local board_w = 128 -- Assuming 128x128 board
+    -- Configuration for placement logic
+    local defender_width = 8
+    local defender_height = 8
+    local attacker_triangle_height = 8
+    local attacker_triangle_base = 6
+    local board_w = 128
     local board_h = 128
 
     -- Helper: Vector subtraction v1 - v2
@@ -17,28 +19,34 @@ function legal_placement(piece_to_place)
 
     -- Helper: Get the world-space coordinates of a piece's corners
     function get_rotated_vertices(piece)
-        local w, h = piece_width, piece_height -- Or from piece.type if dynamic
-        local x, y = piece.position.x, piece.position.y
-        local o = piece.orientation -- PICO-8 orientation (0-1)
+        local o = piece.orientation
+        -- For placement, piece.position is the intended center of the piece.
+        local cx = piece.position.x
+        local cy = piece.position.y
 
-        -- Center of the piece
-        local cx = x + w / 2
-        local cy = y + h / 2
+        local local_corners = {}
 
-        -- Half-width and half-height
-        local hw = w / 2
-        local hh = h / 2
-
-        -- Local corner coordinates (relative to center, before rotation)
-        -- Order: top-left, top-right, bottom-right, bottom-left
-        local local_corners = {
-            {x = -hw, y = -hh}, {x = hw, y = -hh},
-            {x = hw, y = hh},   {x = -hw, y = hh}
-        }
+        if piece.type == "attacker" then
+            local h = attacker_triangle_height
+            local b = attacker_triangle_base
+            -- Apex: (h/2, 0) relative to center, along orientation
+            -- Base 1: (-h/2, b/2)
+            -- Base 2: (-h/2, -b/2)
+            add(local_corners, {x = h/2, y = 0})
+            add(local_corners, {x = -h/2, y = b/2})
+            add(local_corners, {x = -h/2, y = -b/2})
+        else -- Defender (square)
+            local w, h = defender_width, defender_height
+            local hw = w / 2
+            local hh = h / 2
+            add(local_corners, {x = -hw, y = -hh})
+            add(local_corners, {x = hw, y = -hh})
+            add(local_corners, {x = hw, y = hh})
+            add(local_corners, {x = -hw, y = hh})
+        end
 
         local world_corners = {}
         for lc in all(local_corners) do
-            -- PICO-8 cos/sin use 0..1 for angle
             local rotated_x = lc.x * cos(o) - lc.y * sin(o)
             local rotated_y = lc.x * sin(o) + lc.y * cos(o)
             add(world_corners, {x = cx + rotated_x, y = cy + rotated_y})
@@ -97,6 +105,8 @@ function legal_placement(piece_to_place)
 
     -- 1. Boundary Check: Ensure all corners of the piece are within board limits
     local world_corners = get_rotated_vertices(piece_to_place)
+    if not world_corners or #world_corners < 3 then return false end -- Not enough vertices
+
     for corner in all(world_corners) do
         if corner.x < 0 or corner.x > board_w or
            corner.y < 0 or corner.y > board_h then
