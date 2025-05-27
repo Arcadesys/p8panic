@@ -9,6 +9,42 @@ cursor_x=64-4
 cursor_y=64-4
 pieces={}
 
+-- Piece dimensions (consistent with placement.lua)
+local piece_width = 8
+local piece_height = 8
+
+-- Helper function to get rotated vertices for drawing
+-- (Similar to the one in placement.lua, but might be adapted for drawing needs if different)
+function get_piece_draw_vertices(piece)
+    local w, h = piece_width, piece_height -- Or from piece.type if dynamic
+    local x, y = piece.position.x, piece.position.y
+    local o = piece.orientation -- PICO-8 orientation (0-1)
+
+    -- Center of the piece for rotation
+    local cx = x + w / 2
+    local cy = y + h / 2
+
+    -- Half-width and half-height
+    local hw = w / 2
+    local hh = h / 2
+
+    -- Local corner coordinates (relative to center, before rotation)
+    -- Order: top-left, top-right, bottom-right, bottom-left
+    local local_corners = {
+        {x = -hw, y = -hh}, {x = hw, y = -hh},
+        {x = hw, y = hh},   {x = -hw, y = hh}
+    }
+
+    local world_corners = {}
+    for lc in all(local_corners) do
+        -- PICO-8 cos/sin use 0..1 for angle
+        local rotated_x = lc.x * cos(o) - lc.y * sin(o)
+        local rotated_y = lc.x * sin(o) + lc.y * cos(o)
+        add(world_corners, {x = cx + rotated_x, y = cy + rotated_y})
+    end
+    return world_corners
+end
+
 -- delegate all input/interaction to controls.lua
 function _update()
   update_controls()
@@ -19,25 +55,425 @@ function _draw()
   -- draw defenders
   for p in all(pieces) do
     if p.type=="defender" then
-      local x=p.position.x
-      local y=p.position.y
-        -- draw a defender as a white square
-      rect(x, y, x+7, y+7, 7)
+      local vertices = get_piece_draw_vertices(p)
+      -- Draw the rotated piece by connecting its vertices
+      line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, 7) -- Top edge
+      line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, 7) -- Right edge
+      line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, 7) -- Bottom edge
+      line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, 7) -- Left edge
     end
   end
-  -- draw cursor outline
-  rect(cursor_x,cursor_y,cursor_x+7,cursor_y+7,7)
+
+  -- draw cursor / placement preview
+  -- control_state and pending_orientation are global vars from 6.controls.lua
+  if control_state == 1 then -- Rotate/confirm mode
+    local cursor_preview_piece = {
+      position = { x = cursor_x, y = cursor_y },
+      orientation = pending_orientation,
+      -- type = "cursor" -- Not strictly needed for get_piece_draw_vertices if width/height are fixed
+    }
+    local vertices = get_piece_draw_vertices(cursor_preview_piece)
+    -- Draw the rotated cursor preview (e.g., in a different color or style)
+    -- Using color 13 (pink) for preview
+    line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, 13)
+    line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, 13)
+    line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, 13)
+    line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, 13)
+  else -- Movement mode
+    -- Draw cursor outline as a simple square
+    rect(cursor_x,cursor_y,cursor_x+7,cursor_y+7,7)
+  end
 end
 -->8
---cursor
+--cursor.lua
+
+--handles cursor movement, mode changes, and piece selection
+local cursor = {
+    position = { x = 0, y = 0 },
+    mode = "defender", -- "attacker", "defender", or "capture"
+    selected_piece = nil
+}
+-->8
+-- src/6.collision.lua
+-- Handles collision detection and finding safe spots.
+-- luacheck: globals all min max abs flr
+
+-- Checks if two rectangles overlap
+-- rect = {x, y, w, h}
+function check_rect_overlap(r1, r2)
+  if not r1 or not r2 or not r1.x or not r1.y or not r1.w or not r1.h or not r2.x or not r2.y or not r2.w or not r2.h then
+    -- print("invalid rect in check_rect_overlap") -- Optional debug
+    return false
+  end
+  return r1.x < r2.x + r2.w and
+         r1.x + r1.w > r2.x and
+         r1.y < r2.y + r2.h and
+         r1.y + r1.h > r2.y
+end
+
+-- Checks if a given area is occupied by any piece in the list
+-- x, y, w, h: define the area to check (e.g., cursor)
+-- all_pieces_list: table of piece objects
+function is_area_occupied(x, y, w, h, all_pieces_list)
+  local check_rect = {x=x, y=y, w=w, h=h}
+  if not all_pieces_list then return false end
+
+  for piece_to_check in all(all_pieces_list) do
+    if piece_to_check and piece_to_check.position then
+      local piece_rect = {
+        x = piece_to_check.position.x,
+        y = piece_to_check.position.y,
+        w = 8, -- Assuming all pieces are 8x8
+        h = 8
+      }
+      if check_rect_overlap(check_rect, piece_rect) then
+        return true -- Area is occupied
+      end
+    end
+  end
+  return false -- Area is clear
+end
+
+-- Finds a safe teleport location for the cursor
+-- placed_x, placed_y: coordinates of the piece just placed
+-- item_w, item_h: width/height of pieces and cursor (e.g., 8x8)
+-- all_pieces_list: table of all pieces on the board
+-- board_w, board_h: dimensions of the game board (e.g., 128x128)
+function find_safe_teleport_location(placed_x, placed_y, item_w, item_h, all_pieces_list, board_w, board_h)
+  local max_search_radius_grid = max(flr(board_w/item_w), flr(board_h/item_h))
+  local placed_gx = flr(placed_x / item_w)
+  local placed_gy = flr(placed_y / item_h)
+
+  for r = 1, max_search_radius_grid do
+    local unique_points_grid = {}
+    local visited_coords = {} -- To store "gx_gy" strings to ensure uniqueness
+
+    local function add_unique_grid_point(gx, gy)
+      local key = gx .. "_" .. gy
+      if not visited_coords[key] then
+        -- Check if the grid point is within board grid boundaries
+        if gx >= 0 and gx < flr(board_w/item_w) and gy >= 0 and gy < flr(board_h/item_h) then
+          add(unique_points_grid, {gx=gx, gy=gy})
+          visited_coords[key] = true
+        end
+      end
+    end
+
+    -- Iterate points on the perimeter of a square of radius r (in grid cells)
+    for i = -r, r do
+      add_unique_grid_point(placed_gx + i, placed_gy - r) -- Top edge
+      add_unique_grid_point(placed_gx + i, placed_gy + r) -- Bottom edge
+    end
+    for i = -r + 1, r - 1 do -- Sides, excluding corners already covered
+      add_unique_grid_point(placed_gx - r, placed_gy + i) -- Left edge
+      add_unique_grid_point(placed_gx + r, placed_gy + i) -- Right edge
+    end
+
+    for pt_grid in all(unique_points_grid) do
+      local cand_cx = pt_grid.gx * item_w
+      local cand_cy = pt_grid.gy * item_h
+      
+      -- This check is implicitly handled by add_unique_grid_point's boundary check for gx,gy
+      -- if cand_cx >= 0 and cand_cx <= board_w - item_w and
+      --    cand_cy >= 0 and cand_cy <= board_h - item_h then
+      if not is_area_occupied(cand_cx, cand_cy, item_w, item_h, all_pieces_list) then
+        return cand_cx, cand_cy -- Found a safe spot
+      end
+      -- end
+    end
+  end
+
+  -- Fallback: if spiral search fails, try a simple scan of the whole board
+  for gy_grid = 0, flr(board_h/item_h) - 1 do
+    for gx_grid = 0, flr(board_w/item_w) - 1 do
+      local cx = gx_grid * item_w
+      local cy = gy_grid * item_h
+      if not (cx == placed_x and cy == placed_y) then -- Ensure it's not the exact spot just placed
+        if not is_area_occupied(cx, cy, item_w, item_h, all_pieces_list) then
+          return cx, cy
+        end
+      end
+    end
+  end
+  
+  -- If still no spot (board is completely full, or only placed_piece spot left),
+  -- it's problematic. Return nil, or current cursor pos to not move.
+  return nil, nil 
+end
+-->8
+--placement
+function legal_placement(piece_to_place)
+    -- Configuration for placement logic (adjust if necessary)
+    local piece_width = 8
+    local piece_height = 8
+    local board_w = 128 -- Assuming 128x128 board
+    local board_h = 128
+
+    -- Helper: Vector subtraction v1 - v2
+    function vec_sub(v1, v2)
+        return {x = v1.x - v2.x, y = v1.y - v2.y}
+    end
+
+    -- Helper: Vector dot product
+    function vec_dot(v1, v2)
+        return v1.x * v2.x + v1.y * v2.y
+    end
+
+    -- Helper: Get the world-space coordinates of a piece's corners
+    function get_rotated_vertices(piece)
+        local w, h = piece_width, piece_height -- Or from piece.type if dynamic
+        local x, y = piece.position.x, piece.position.y
+        local o = piece.orientation -- PICO-8 orientation (0-1)
+
+        -- Center of the piece
+        local cx = x + w / 2
+        local cy = y + h / 2
+
+        -- Half-width and half-height
+        local hw = w / 2
+        local hh = h / 2
+
+        -- Local corner coordinates (relative to center, before rotation)
+        -- Order: top-left, top-right, bottom-right, bottom-left
+        local local_corners = {
+            {x = -hw, y = -hh}, {x = hw, y = -hh},
+            {x = hw, y = hh},   {x = -hw, y = hh}
+        }
+
+        local world_corners = {}
+        for lc in all(local_corners) do
+            -- PICO-8 cos/sin use 0..1 for angle
+            local rotated_x = lc.x * cos(o) - lc.y * sin(o)
+            local rotated_y = lc.x * sin(o) + lc.y * cos(o)
+            add(world_corners, {x = cx + rotated_x, y = cy + rotated_y})
+        end
+        return world_corners
+    end
+
+    -- Helper: Project vertices onto an axis and return min/max projection
+    function project_vertices(vertices, axis)
+        local min_proj = vec_dot(vertices[1], axis)
+        local max_proj = min_proj
+        for i = 2, #vertices do
+            local proj = vec_dot(vertices[i], axis)
+            if proj < min_proj then min_proj = proj
+            elseif proj > max_proj then max_proj = proj
+            end
+        end
+        return min_proj, max_proj
+    end
+
+    -- Helper: Check for Oriented Bounding Box (OBB) collision using Separating Axis Theorem (SAT)
+    function check_obb_collision(piece1, piece2)
+        local vertices1 = get_rotated_vertices(piece1)
+        local vertices2 = get_rotated_vertices(piece2)
+
+        local axes = {}
+        -- Axes from piece1 (normals to edges)
+        -- Edge from v1 to v2: (v2.x - v1.x, v2.y - v1.y)
+        -- Normal: (-(v2.y - v1.y), v2.x - v1.x)
+        local edge1_1 = vec_sub(vertices1[2], vertices1[1])
+        add(axes, {x = -edge1_1.y, y = edge1_1.x}) -- Normal to first edge
+        local edge1_2 = vec_sub(vertices1[4], vertices1[1]) -- Use adjacent edge for the other normal
+        add(axes, {x = -edge1_2.y, y = edge1_2.x}) -- Normal to second edge
+
+        -- Axes from piece2
+        local edge2_1 = vec_sub(vertices2[2], vertices2[1])
+        add(axes, {x = -edge2_1.y, y = edge2_1.x})
+        local edge2_2 = vec_sub(vertices2[4], vertices2[1])
+        add(axes, {x = -edge2_2.y, y = edge2_2.x})
+
+        for axis in all(axes) do
+            -- Normalize axis (optional for SAT, but good for consistency if using penetration depth)
+            -- local len = sqrt(axis.x^2 + axis.y^2)
+            -- if len > 0 then axis.x /= len; axis.y /= len end
+
+            local min1, max1 = project_vertices(vertices1, axis)
+            local min2, max2 = project_vertices(vertices2, axis)
+
+            -- Check for non-overlap
+            if max1 < min2 or max2 < min1 then
+                return false -- Separating axis found, no collision
+            end
+        end
+        return true -- No separating axis found, collision
+    end
+
+    -- 1. Boundary Check: Ensure all corners of the piece are within board limits
+    local world_corners = get_rotated_vertices(piece_to_place)
+    for corner in all(world_corners) do
+        if corner.x < 0 or corner.x > board_w or
+           corner.y < 0 or corner.y > board_h then
+            -- flr.print("Boundary fail: x="..corner.x.." y="..corner.y,0,0,7) -- Debug
+            return false -- Piece is out of bounds
+        end
+    end
+
+    -- 2. Intersection Check: Ensure the piece doesn't collide with existing pieces
+    -- 'pieces' is assumed to be a global table of already placed pieces
+    if pieces then -- Check if the 'pieces' table exists and has items
+        for existing_piece in all(pieces) do
+            -- No need to check piece_to_place against itself if it were already in 'pieces',
+            -- but for a new placement, it won't be.
+            if check_obb_collision(piece_to_place, existing_piece) then
+                -- flr.print("Collision fail",0,8,7) -- Debug
+                return false -- Collides with an existing piece
+            end
+        end
+    end
+
+    return true -- Placement is legal
+end
+
+function redraw_lasers()
+    --when we place a new piece, we need to recalculate the score.
+end
+
+function place_piece(piece)
+    if legal_placement(piece) then
+        add(pieces, piece)
+        redraw_lasers()
+    end
+end
+-->8
+--ui
+-->8
+-- src/5.menu.lua
+
+menu_active = true
+selected_players = 3 -- Default to 3 players
+min_players = 3
+max_players = 4
+
+selected_stash_size = 6 -- Default to 6
+min_stash_size = 3
+max_stash_size = 10
+
+menu_options = {
+  {text = "Players", value_key = "selected_players", min_val = min_players, max_val = max_players},
+  {text = "Stash Size", value_key = "selected_stash_size", min_val = min_stash_size, max_val = max_stash_size},
+  {text = "Start Game"}
+}
+current_menu_selection_index = 1 -- 1-based index
+
+function _update_menu_controls()
+  if not menu_active then return end
+
+  local option_changed = false
+
+  -- Navigate menu options (using player 0 controls: d-pad buttons 2 for up, 3 for down)
+  if btnp(2) then -- Up
+    current_menu_selection_index = current_menu_selection_index - 1
+    if current_menu_selection_index < 1 then
+      current_menu_selection_index = #menu_options
+    end
+  elseif btnp(3) then -- Down
+    current_menu_selection_index = current_menu_selection_index + 1
+    if current_menu_selection_index > #menu_options then
+      current_menu_selection_index = 1
+    end
+  end
+
+  local current_option = menu_options[current_menu_selection_index]
+
+  -- Change option values or start game
+  if current_option.value_key then -- This option has a value to change (Players or Stash Size)
+    local current_value_for_option
+    if current_option.value_key == "selected_players" then
+      current_value_for_option = selected_players
+    elseif current_option.value_key == "selected_stash_size" then
+      current_value_for_option = selected_stash_size
+    end
+
+    -- Use d-pad buttons 0 for left, 1 for right
+    if btnp(0) then -- Left
+      current_value_for_option = current_value_for_option - 1
+      if current_value_for_option < current_option.min_val then
+        current_value_for_option = current_option.min_val
+      end
+      option_changed = true
+    elseif btnp(1) then -- Right
+      current_value_for_option = current_value_for_option + 1
+      if current_value_for_option > current_option.max_val then
+        current_value_for_option = current_option.max_val
+      end
+      option_changed = true
+    end
+
+    if option_changed then
+      if current_option.value_key == "selected_players" then
+        selected_players = current_value_for_option
+      elseif current_option.value_key == "selected_stash_size" then
+        selected_stash_size = current_value_for_option
+      end
+    end
+  elseif current_option.text == "Start Game" then -- This is the "Start Game" option
+    -- Use action buttons 4 (O) or 5 (X)
+    if btnp(4) or btnp(5) then
+      menu_active = false
+      -- Game will start on the next frame because menu_active is false.
+      -- Game initialization logic (e.g. creating cursors)
+      -- will need to read selected_players and selected_stash_size.
+    end
+  end
+end
+
+function _draw_main_menu()
+  if not menu_active then return end
+
+  cls(1) -- Dark blue background (PICO-8 color 1)
+
+  -- Title
+  print("p8panic", 48, 10, 7) -- White text (PICO-8 color 7)
+
+  local menu_start_y = 30
+  local line_height = 10
+
+  for i, option in ipairs(menu_options) do
+    local color = 7 -- Default color: White
+    local prefix = "  "
+    if i == current_menu_selection_index then
+      color = 8 -- Highlight color: Red (PICO-8 color 8)
+      prefix = "> "
+    end
+
+    local text_to_draw = prefix .. option.text
+    if option.value_key then
+      local value_display
+      if option.value_key == "selected_players" then
+        value_display = selected_players
+      elseif option.value_key == "selected_stash_size" then
+        value_display = selected_stash_size
+      end
+      text_to_draw = text_to_draw .. ": < " .. value_display .. " >"
+    end
+
+    print(text_to_draw, 20, menu_start_y + (i-1)*line_height, color)
+  end
+
+  -- Instructions
+  local instruction_y = 100
+  print("use d-pad to navigate", 10, instruction_y, 6)       -- Light grey (PICO-8 color 6)
+  print("left/right to change", 10, instruction_y + 8, 6)
+  print("o/x to start", 10, instruction_y + 16, 6)
+end
 -->8
 -- controls.lua: handles cursor movement, rotation, and placement/cancel logic
--- luacheck: globals btn btnp max min add cursor_x cursor_y pieces current_player
+-- luacheck: globals btn btnp max min add cursor_x cursor_y pieces current_player find_safe_teleport_location board_w board_h all
 
 -- state: 0 = move, 1 = rotate/confirm
 control_state = 0
-pending_orientation = 0
+pending_orientation = 0 -- Angle in PICO-8 format (0-1 for 0-360 degrees, 0 is right/east)
+-- To make 0 = Up for easier visual start, we can initialize to 0.75 (270 degrees)
+pending_orientation = 0.75
 pending_color = 1 -- Default to player 1's color, or current_player
+
+-- Helper function to wrap angle between 0 and 1
+function wrap_angle(angle)
+  return (angle % 1 + 1) % 1
+end
+
+local rotation_speed = 0.02 -- Adjust for faster/slower rotation
 
 function update_controls()
   if control_state == 0 then
@@ -48,13 +484,17 @@ function update_controls()
     -- enter rotation/confirmation mode with primary (❎/Z/4)
     if btnp(4) then
       control_state = 1
-      -- pending_orientation is kept from previous rotation or defaults if not set
+      -- pending_orientation is kept from previous rotation
       pending_color = current_player or 1 -- Start with current player's color
     end
   elseif control_state == 1 then
-    -- Rotate with left/right
-    if btnp(0) then pending_orientation = (pending_orientation - 1 + 4) % 4 end -- Ensure positive result for modulo
-    if btnp(1) then pending_orientation = (pending_orientation + 1) % 4 end
+    -- Rotate with left/right (continuous rotation)
+    if btn(0) then -- Holding left
+      pending_orientation = wrap_angle(pending_orientation - rotation_speed)
+    end
+    if btn(1) then -- Holding right
+      pending_orientation = wrap_angle(pending_orientation + rotation_speed)
+    end
 
     -- Select color with up/down (cycles through 1-4 for now)
     -- TODO: Integrate stash availability check
@@ -63,14 +503,28 @@ function update_controls()
 
     -- Place with primary
     if btnp(4) then
+      local placed_piece_x = cursor_x
+      local placed_piece_y = cursor_y
       add(pieces, {
         owner = pending_color, -- Use selected color
         type = "defender", -- Assuming defender for now, will need to adapt for attackers
-        position = { x = cursor_x, y = cursor_y },
-        orientation = pending_orientation
+        position = { x = placed_piece_x, y = placed_piece_y },
+        orientation = pending_orientation -- Store the angle
       })
       control_state = 0 -- Return to movement mode
       -- pending_orientation is kept for next placement attempt
+
+      -- Teleport cursor to a safe spot
+      -- Assuming board_w and board_h are available globally or passed appropriately
+      -- For now, let's assume 128x128 board and 8x8 pieces/cursor
+      local new_cursor_x, new_cursor_y = find_safe_teleport_location(placed_piece_x, placed_piece_y, 8, 8, pieces, 128, 128)
+      if new_cursor_x and new_cursor_y then
+        cursor_x = new_cursor_x
+        cursor_y = new_cursor_y
+      else
+        -- Handle case where no safe spot is found (e.g., log or keep cursor)
+        -- print("no safe spot found!")
+      end
     end
 
     -- Cancel (exit placement mode) with secondary (🅾️/X/5), keep orientation
@@ -80,10 +534,6 @@ function update_controls()
     end
   end
 end
--->8
---placement
--->8
---ui
 __gfx__
 00000000aaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000a9999999999999999999999a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
