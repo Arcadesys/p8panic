@@ -5,6 +5,7 @@ __lua__
 -- p8panic - A game of tactical geometry
 
 player_manager = {} -- Initialize player_manager globally here
+STASH_SIZE = 6 -- Default stash size, configurable in menu (min 3, max 10)
 create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua now)
 pieces = {} -- Initialize pieces globally here
 LASER_LEN = 60 -- Initialize LASER_LEN globally here
@@ -134,7 +135,8 @@ function init_cursors(num_players)
       pending_type = "defender",  -- "defender", "attacker", "capture"
       pending_color = (p_obj and p_obj:get_ghost_color()) or 7,
       pending_orientation = 0,
-      return_cooldown = 0
+      return_cooldown = 0,
+      color_select_idx = 1 -- For cycling stash colors during placement
     }
   end
 end
@@ -216,7 +218,15 @@ function _init()
   -- Start in menu state by default (current_game_state = GAME_STATE_MENU)
 end
 
+
 function update_menu_state()
+  -- Adjust stash size with left/right
+  if btnp(⬅️) then
+    STASH_SIZE = max(3, STASH_SIZE - 1)
+  elseif btnp(➡️) then
+    STASH_SIZE = min(10, STASH_SIZE + 1)
+  end
+  -- Start game
   if btnp(❎) or btnp(🅾️) then
     go_to_state(GAME_STATE_PLAYING)
   end
@@ -244,10 +254,13 @@ function _update()
   end
 end
 
+
 function draw_menu_state()
   print("P8PANIC", 50, 50, 7)
   print("PRESS X OR O", 40, 70, 8)
   print("TO START", 50, 80, 8)
+  print("STASH SIZE: "..STASH_SIZE, 36, 100, 11)
+  print("(\x8e/\x91 to set 3-10)", 24, 110, 6) -- ⬅️/➡️
 end
 
 function draw_playing_state_elements()
@@ -267,7 +280,8 @@ function draw_playing_state_elements()
     local current_player_obj = player_manager.get_player(i)
     if not current_player_obj then goto next_cursor_draw end -- Skip if no player object
 
-    local cursor_draw_color = (current_player_obj and current_player_obj:get_ghost_color()) or cur.pending_color
+    -- In placement mode, use the selected color for the ghost piece
+    local cursor_draw_color = cur.pending_color or ((current_player_obj and current_player_obj:get_ghost_color()) or 7)
 
     if cur.control_state == 0 or cur.control_state == 2 then
       if cur.pending_type == "defender" then
@@ -307,10 +321,21 @@ function draw_playing_state_elements()
     if p_obj then
       local score_txt = p_obj:get_score() .. ""
       local p_color = p_obj:get_color()
-      if i == 1 then print(score_txt, margin, margin, p_color)
-      elseif i == 2 then print(score_txt, 128 - margin - #score_txt * font_width, margin, p_color)
-      elseif i == 3 then print(score_txt, margin, 128 - margin - font_height, p_color)
-      elseif i == 4 then print(score_txt, 128 - margin - #score_txt * font_width, 128 - margin - font_height, p_color)
+      -- Draw score in corner
+      local x, y = margin, margin
+      if i == 1 then x, y = margin, margin
+      elseif i == 2 then x, y = 128 - margin - #score_txt * font_width, margin
+      elseif i == 3 then x, y = margin, 128 - margin - font_height
+      elseif i == 4 then x, y = 128 - margin - #score_txt * font_width, 128 - margin - font_height
+      end
+      print(score_txt, x, y, p_color)
+      -- Draw stash below/above score, one color per line
+      local stash_y = y + font_height + 1
+      for color, count in pairs(p_obj.stash) do
+        if count > 0 then
+          print("["..count.."]", x, stash_y, color)
+          stash_y = stash_y + font_height
+        end
       end
     end
   end
@@ -341,8 +366,8 @@ function Player:new(id, initial_score, color, ghost_color) -- Added initial_scor
     ghost_color = ghost_color,
     stash = {} -- Initialize stash as an empty table
   }
-  -- Initialize stash with 6 pieces of the player's own color
-  instance.stash[color] = 6 
+  -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player's own color
+  instance.stash[color] = STASH_SIZE or 6
   setmetatable(instance, self)
   return instance
 end
@@ -639,6 +664,7 @@ function Piece:new(o)
   o.orientation = o.orientation or 0
   -- o.owner_id should be provided
   -- o.type should be set by subclasses or factory
+  -- o.color is now passed in params for placed pieces
   setmetatable(o, self) -- Set metatable after o is populated
   return o
 end
@@ -646,6 +672,10 @@ end
 function Piece:get_color()
   if self.is_ghost and self.ghost_color_override then
     return self.ghost_color_override
+  end
+  -- If a color is explicitly set on the piece (e.g., when placed from stash), use it.
+  if self.color then
+    return self.color
   end
   if self.owner_id then
     local owner_player = player_manager.get_player(self.owner_id)
@@ -816,12 +846,12 @@ end
 -- Factory function to create pieces
 -- Global `pieces` table will be needed for laser interactions in Attacker:draw
 -- It might be passed to Attacker:draw or accessed globally if available.
-function create_piece(params) -- `params` should include owner_id, type, position, orientation
+function create_piece(params) -- `params` should include owner_id, type, position, orientation, color
   local piece_obj
   if params.type == "attacker" then
-    piece_obj = Attacker:new(params)
+    piece_obj = Attacker:new(params) -- Pass all params, including color
   elseif params.type == "defender" then
-    piece_obj = Defender:new(params)
+    piece_obj = Defender:new(params) -- Pass all params, including color
   else
     printh("Error: Unknown piece type: " .. (params.type or "nil"))
     return nil
@@ -953,25 +983,36 @@ end
 
 function place_piece(piece_params, player_obj)
   if legal_placement(piece_params) then
-    local piece_color_to_place = player_obj:get_color()
+    local piece_color_to_place = piece_params.color -- Strictly use the color from params
+
+    if piece_color_to_place == nil then
+      printh("PLACE ERROR: piece_params.color is NIL!")
+      return false -- Fail if no color specified by controls
+    end
     
+    printh("Place attempt: P"..player_obj.id.." color: "..tostring(piece_color_to_place).." type: "..piece_params.type)
+
     if player_obj:use_piece_from_stash(piece_color_to_place) then
-      local new_piece_obj = create_piece(piece_params)
+      -- piece_params already contains the .color, create_piece should use it
+      local new_piece_obj = create_piece(piece_params) 
       if new_piece_obj then
         add(pieces, new_piece_obj)
         score_pieces() -- Recalculate scores after placing a piece
+        printh("Placed piece with color: " .. tostring(new_piece_obj:get_color()))
         return true
       else
-        printh("Failed to create piece object.")
+        printh("Failed to create piece object after stash use.")
         player_obj:add_captured_piece(piece_color_to_place) -- Return piece to stash
         return false
       end
     else
-      printh("P" .. player_obj.id .. " has no more of their own pieces.")
+      printh("P" .. player_obj.id .. " has no piece of color " .. tostring(piece_color_to_place) .. " in stash.")
       return false
     end
+  else
+    printh("Placement not legal for P"..player_obj.id)
+    return false
   end
-  return false
 end
 -->8
 -- Converted Controls Module for Multi-Cursor Support
@@ -1025,8 +1066,29 @@ function update_controls()
         end
       end
 
+
     elseif cur.control_state == CSTATE_ROTATE_PLACE then
-      -- Rotate pending piece using d-pad.
+      -- Gather available colors in stash
+      local available_colors = {}
+      for color, count in pairs(current_player_obj.stash) do
+        if count > 0 then add(available_colors, color) end
+      end
+      -- If no color, fallback to player's own color
+      if #available_colors == 0 then available_colors = {current_player_obj:get_color()} end
+      -- Clamp color_select_idx
+      if cur.color_select_idx > #available_colors then cur.color_select_idx = 1 end
+      if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
+
+      -- Cycle color selection with up/down
+      if btnp(⬆️, i - 1) then
+        cur.color_select_idx = cur.color_select_idx - 1
+        if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
+      elseif btnp(⬇️, i - 1) then
+        cur.color_select_idx = cur.color_select_idx + 1
+        if cur.color_select_idx > #available_colors then cur.color_select_idx = 1 end
+      end
+
+      -- Rotate pending piece using left/right
       if btn(⬅️, i - 1) then
         cur.pending_orientation = cur.pending_orientation - rotation_speed
         if cur.pending_orientation < 0 then cur.pending_orientation = cur.pending_orientation + 1 end
@@ -1036,13 +1098,17 @@ function update_controls()
         if cur.pending_orientation >= 1 then cur.pending_orientation = cur.pending_orientation - 1 end
       end
 
+      -- Set pending_color to selected color
+      cur.pending_color = available_colors[cur.color_select_idx] or current_player_obj:get_color()
+
       -- Confirm placement with Button X.
       if btnp(❎, i - 1) then
         local piece_params = {
           owner_id = i, -- Use player index as owner_id
           type = cur.pending_type,
           position = { x = cur.x + 4, y = cur.y + 4 },
-          orientation = cur.pending_orientation
+          orientation = cur.pending_orientation,
+          color = cur.pending_color -- Add the selected color to piece_params
         }
         if place_piece(piece_params, current_player_obj) then
           cur.control_state = CSTATE_COOLDOWN
