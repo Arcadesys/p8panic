@@ -53,8 +53,11 @@ function update_controls()
     elseif cur.control_state == CSTATE_ROTATE_PLACE then
       -- Gather available colors in stash
       local available_colors = {}
-      for color, count in pairs(current_player_obj.stash) do
-        if count > 0 then add(available_colors, color) end
+      -- Use stash_counts (the map) instead of stash (the old array)
+      if current_player_obj and current_player_obj.stash_counts then
+        for color, count in pairs(current_player_obj.stash_counts) do
+          if count > 0 then add(available_colors, color) end
+        end
       end
       -- If no color, fallback to player's own color
       if #available_colors == 0 then available_colors = {current_player_obj:get_color()} end
