@@ -2,20 +2,38 @@
 -- This file will contain functions for drawing UI elements,
 -- including the main menu and in-game HUD.
 
---#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count tostring rectfill min type pairs
+--#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size tostring rectfill min type pairs ipairs
 
 ui = {}
+-- NP and PM can remain cached if N_PLAYERS and player_manager are set before this file loads
+local NP, PM = N_PLAYERS, player_manager
 
 function ui.draw_main_menu()
-  cls(0) -- Clear screen with black
-  
-  -- Simple title and instruction
-  print("P8PANIC", 48, 40, 7) -- White text
-  print("PRESS (X) TO START", 30, 60, 7) -- White text
-  
-  -- Placeholder for future menu options
-  -- print("Players: " .. player_count, 10, 80, 7)
-  -- print("Stash: " .. stash_count, 10, 90, 7)
+  cls(0)
+  print("P8PANIC", 48, 20, 7)
+  local options = {
+    "Players: " .. (menu_player_count or N_PLAYERS or 2), -- Use global menu_player_count
+    "Stash Size: " .. (menu_stash_size or STASH_SIZE or 3), -- Use global menu_stash_size
+    "Start Game",
+    "How To Play"
+  }
+  for i, opt in ipairs(options) do
+    local y = 40 + i * 10
+    local col = (menu_option == i and 11) or 7 -- Use global menu_option
+    print(opt, 20, y, col)
+    if menu_option == i then -- Use global menu_option
+      print("\136", 10, y, 11) -- draw a yellow arrow (character 136)
+    end
+  end
+end
+
+-- Draw how-to-play screen
+function ui.draw_how_to_play()
+  cls(0)
+  print("HOW TO PLAY", 30, 20, 7)
+  print("Use arrows to navigate", 10, 40, 7)
+  print("Press (X) to select", 10, 50, 7)
+  print("Press (X) to return", 10, 100, 7)
 end
 
 function ui.draw_game_hud()
@@ -35,8 +53,8 @@ function ui.draw_game_hud()
     { x = screen_w - margin, y = screen_h - margin - line_h, align_right = true, stash_y_multiplier = -1 }
   }
 
-  for i = 1, N_PLAYERS do
-    local p = player_manager.current_players and player_manager.current_players[i]
+  for i = 1, NP or 1 do
+    local p = PM and PM.current_players and PM.current_players[i]
     if p then
       local corner_cfg = corners[i]
       if not corner_cfg then goto continue_loop end
@@ -106,18 +124,18 @@ function ui.draw_game_hud()
         local bar_idx = 0
         for piece_color, count in pairs(p.stash_counts) do
           if count > 0 then
-            local item_actual_color = piece_color -- Use actual piece color
+            local item_actual_color = piece_color
             
             local bar_height = min(count, stash_item_max_height)
             local current_bar_x_start_offset = bar_idx * effective_bar_step
             local current_bar_x_start = block_render_start_x + current_bar_x_start_offset
             local current_bar_x_end = current_bar_x_start + bar_width - 1
 
-            if corner_cfg.stash_y_multiplier == 1 then -- Bars go down from score line
-              local bar_top_y = score_print_y + line_h 
+            if corner_cfg.stash_y_multiplier == 1 then
+              local bar_top_y = score_print_y + line_h
               rectfill(current_bar_x_start, bar_top_y, current_bar_x_end, bar_top_y + bar_height - 1, item_actual_color)
-            else -- Bars go up from score line (stash_y_multiplier == -1)
-              local bar_bottom_y = score_print_y - 1 
+            else
+              local bar_bottom_y = score_print_y - 1
               rectfill(current_bar_x_start, bar_bottom_y - bar_height + 1, current_bar_x_end, bar_bottom_y, item_actual_color)
             end
             bar_idx = bar_idx + 1
@@ -126,5 +144,42 @@ function ui.draw_game_hud()
       end
     end
     ::continue_loop::
+  end
+end
+ 
+-- Draw the How To Play screen
+function ui.draw_how_to_play()
+  cls(0)
+  print("HOW TO PLAY", 30, 20, 7)
+  -- Placeholder instructions
+  print("Use arrows to navigate menu", 10, 40, 7)
+  print("Press (X) to select", 10, 50, 7)
+  print("Press (X) to return", 10, 100, 7)
+end
+
+function _update_main_menu_logic()
+  -- Navigate options
+  if btnp(1) then menu_option = min(4, menu_option + 1) end -- right
+  if btnp(0) then menu_option = max(1, menu_option - 1) end -- left
+  -- Adjust values
+  if menu_option == 1 then
+    if btnp(2) then menu_player_count = min(4, menu_player_count + 1) end -- up
+    if btnp(3) then menu_player_count = max(2, menu_player_count - 1) end -- down
+  elseif menu_option == 2 then
+    if btnp(2) then menu_stash_size = min(10, menu_stash_size + 1) end -- up
+    if btnp(3) then menu_stash_size = max(3, menu_stash_size - 1) end -- down
+  end
+  -- Select option
+  if btnp(5) then -- ❎ (X)
+    if menu_option == 3 then
+      player_count = menu_player_count
+      stash_count = menu_stash_size
+      N_PLAYERS = menu_player_count
+      STASH_SIZE = menu_stash_size
+      global_game_state = "in_game"
+      printh("Starting game from menu with P:"..player_count.." S:"..stash_count)
+    elseif menu_option == 4 then
+      global_game_state = "how_to_play"
+    end
   end
 end

@@ -58,8 +58,16 @@ function _update()
   if global_game_state == "main_menu" then
     _update_main_menu_logic()
     if global_game_state == "in_game" then
-        -- N_PLAYERS and STASH_SIZE are set by _update_main_menu_logic
-        init_game_properly() 
+      -- N_PLAYERS and STASH_SIZE have been set by menu logic
+      init_game_properly()
+    elseif global_game_state == "how_to_play" then
+      -- handled below
+    end
+  elseif global_game_state == "how_to_play" then
+    -- return to menu on X
+    if btnp(5) then
+      global_game_state = "main_menu"
+      _init_main_menu_state()
     end
   elseif global_game_state == "in_game" then
     _update_game_logic()
@@ -72,6 +80,12 @@ function _draw()
       ui_handler.draw_main_menu()
     else
       cls(0) print("Error: draw_main_menu not found!", 20,60,8)
+    end
+  elseif global_game_state == "how_to_play" then
+    if ui_handler and ui_handler.draw_how_to_play then
+      ui_handler.draw_how_to_play()
+    else
+      cls(0) print("Error: draw_how_to_play not found!", 20,60,8)
     end
   elseif global_game_state == "in_game" then
     _draw_game_screen()
@@ -90,27 +104,31 @@ function _init_main_menu_state()
 end
 
 function _update_main_menu_logic()
-  if btnp(5) then -- Player 0, Button 5 (X button / keyboard X or V)
-    -- Set game settings from menu choices
-    player_count = menu_player_count 
-    stash_count = menu_stash_size     
-    N_PLAYERS = menu_player_count -- Update global N_PLAYERS for game init
-    STASH_SIZE = menu_stash_size -- Update global STASH_SIZE for game init
-    
-    global_game_state = "in_game" 
-    printh("Starting game from menu with P:"..player_count.." S:"..stash_count)
-  end
-  -- Add d-pad logic to change menu_player_count and menu_stash_size here
-  -- For example:
-  if menu_option == 1 then -- Editing player count
+  -- Navigate options
+  if btnp(➡️) then menu_option = min(4, menu_option + 1) end
+  if btnp(⬅️) then menu_option = max(1, menu_option - 1) end
+  -- Adjust values
+  if menu_option == 1 then
     if btnp(⬆️) then menu_player_count = min(4, menu_player_count + 1) end
-    if btnp(⬇️) then menu_player_count = max(1, menu_player_count - 1) end
-    if btnp(➡️) or btnp(🅾️) then menu_option = 2 end -- Cycle to stash size
-  elseif menu_option == 2 then -- Editing stash size
+    if btnp(⬇️) then menu_player_count = max(2, menu_player_count - 1) end
+  elseif menu_option == 2 then
     if btnp(⬆️) then menu_stash_size = min(10, menu_stash_size + 1) end
     if btnp(⬇️) then menu_stash_size = max(3, menu_stash_size - 1) end
-    if btnp(⬅️) then menu_option = 1 end -- Cycle back to player count
-    if btnp(🅾️) then menu_option = 1 end -- Cycle to player count (or a "Start" option if added)
+  end
+  -- Select option
+  if btnp(5) then
+    if menu_option == 3 then
+      -- Start game
+      player_count = menu_player_count
+      stash_count = menu_stash_size
+      N_PLAYERS = menu_player_count
+      STASH_SIZE = menu_stash_size
+      global_game_state = "in_game"
+      printh("Starting game from menu with P:"..player_count.." S:"..stash_count)
+    elseif menu_option == 4 then
+      -- Show how-to-play
+      global_game_state = "how_to_play"
+    end
   end
 
   -- Update what ui.draw_main_menu will show (it reads player_count, stash_count directly)
