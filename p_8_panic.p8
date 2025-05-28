@@ -138,10 +138,12 @@ function Player:new(id, initial_score, color, ghost_color) -- Added initial_scor
     score = initial_score or 0,
     color = color,
     ghost_color = ghost_color,
-    stash = {} -- Initialize stash as an empty table
+    stash = {}, -- Initialize stash as an empty table
+    stash_counts = {STASH_SIZE or 6, 0, 0, 0}, -- Initialize stash_counts with STASH_SIZE in the first slot
+    captured_pieces_count = 0 -- Initialize captured_pieces_count
   }
-  -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player\'s own color
-  -- STASH_SIZE should be a global variable accessible here, typically set by menu/game init.
+  -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player's own color
+  -- This line might be for a different piece tracking mechanism, HUD uses stash_counts.
   instance.stash[color] = STASH_SIZE or 6 -- Access global STASH_SIZE explicitly
   setmetatable(instance, self)
   return instance
@@ -187,12 +189,35 @@ end
 
 -- Method to use a piece from the stash
 -- Returns true if successful, false otherwise
-function Player:use_piece_from_stash(piece_color)
-  if self:has_piece_in_stash(piece_color) then
-    self.stash[piece_color] = self.stash[piece_color] - 1
-    return true
+function Player:use_piece_from_stash(piece_color_to_use)
+  -- Assumption: The piece_color_to_use is the player's own primary color,
+  -- and this corresponds to the first slot in stash_counts.
+  if piece_color_to_use == self.color then
+    if self.stash_counts[1] > 0 then
+      self.stash_counts[1] = self.stash_counts[1] - 1
+      -- Also update the old self.stash table for consistency, though HUD uses stash_counts
+      if self.stash[piece_color_to_use] and self.stash[piece_color_to_use] > 0 then
+        self.stash[piece_color_to_use] = self.stash[piece_color_to_use] - 1
+      end
+      printh("P"..self.id.." used piece. Stash counts[1]: "..self.stash_counts[1]) -- DEBUG
+      return true
+    else
+      printh("P"..self.id.." has no pieces of type 1 (color "..piece_color_to_use..") in stash_counts.") -- DEBUG
+      return false
+    end
+  else
+    -- If trying to use a piece of a different color (e.g., captured pieces of other types)
+    -- This part needs more complex logic if players can place other colored pieces from stash_counts[2-4]
+    -- For now, we only allow placing the primary piece type from stash_counts[1]
+    printh("P"..self.id.." tried to use non-primary color "..piece_color_to_use..". Not implemented for stash_counts.") -- DEBUG
+    
+    -- Fallback to old logic for other colors, though this won't affect HUD
+    if self:has_piece_in_stash(piece_color_to_use) then
+      self.stash[piece_color_to_use] = self.stash[piece_color_to_use] - 1
+      return true -- This won't update HUD correctly for these pieces
+    end
+    return false
   end
-  return false
 end
 
 -- Module-level table player_manager is already defined globally in 0.init.lua
@@ -395,8 +420,8 @@ function score_pieces()
   pieces = remaining_pieces
 end
 
--- Renamed from score_attackers to score_pieces to reflect broader scope
-score_pieces = score_pieces
+-- Renamed from score_pieces to update_game_state to reflect broader scope
+update_game_state = score_pieces
 -->8
 -- src/5.piece.lua
 
@@ -913,7 +938,7 @@ end
 -- This file will contain functions for drawing UI elements,
 -- including the main menu and in-game HUD.
 
---#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count tostring
+--#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count tostring rectfill min type pairs
 
 ui = {}
 
@@ -930,20 +955,6 @@ function ui.draw_main_menu()
 end
 
 function ui.draw_game_hud()
-  -- DEBUG: Check N_PLAYERS and player_manager status (commented out)
-  -- local pm_text = "PM_T: " .. type(player_manager)
-  -- if type(player_manager) == "table" then
-  --   local key_count = 0
-  --   for _ in pairs(player_manager) do key_count = key_count + 1 end
-  --   pm_text = pm_text .. " PM_KEYS: " .. key_count
-  --   if type(player_manager.current_players) == "table" then
-  --     pm_text = pm_text .. " CUR_P_T: table CUR_P_#: " .. #player_manager.current_players
-  --   else
-  --     pm_text = pm_text .. " CUR_P_T: " .. type(player_manager.current_players)
-  --   end
-  -- end
-  -- print("N_P:"..tostring(N_PLAYERS).." " .. pm_text, 1, 1, 13) -- Print debug info at top-left
-
   local screen_w = 128
   local screen_h = 128
   local margin = 5
@@ -960,7 +971,6 @@ function ui.draw_game_hud()
     { x = screen_w - margin, y = screen_h - margin - line_h, align_right = true, stash_y_multiplier = -1 }
   }
 
-  -- Configuration for stash item display colors
   local stash_slot_colors = {
     7,  -- Slot 1: White
     12, -- Slot 2: Dark Blue
@@ -982,32 +992,58 @@ function ui.draw_game_hud()
       local score_val = p.score or 0
       local score_text_prefix = "SCORE "
       local score_text_full = score_text_prefix .. score_val
-      
       local print_x_score
       if align_right then
-        print_x_score = current_x_anchor - (#score_text_full * 4) -- Approx char width 4px
+        print_x_score = current_x_anchor - (#score_text_full * 4)
       else
         print_x_score = current_x_anchor
       end
-      -- Print score with player's color, fallback to white (7)
       print(score_text_full, print_x_score, score_print_y, p.color or 7)
 
-      -- 2. Print Stash (up to 4 items/counts)
-      for k = 1, 4 do
-        local stash_item_y = score_print_y + (k * line_h * corner_cfg.stash_y_multiplier)
-        local count = (p.stash_counts and p.stash_counts[k]) or 0
-        
-        if count > 0 then -- Only display if count is positive
-          local item_text = tostring(count)
-          local item_color = stash_slot_colors[k] or 7 -- Fallback to white
-          
-          local print_x_item
-          if align_right then
-            print_x_item = current_x_anchor - (#item_text * 4)
-          else
-            print_x_item = current_x_anchor
+      -- 2. Print Stash Bars
+      local bar_width = 4
+      local bar_h_spacing = 1 -- Horizontal space between bars
+      local effective_bar_step = bar_width + bar_h_spacing
+      local stash_item_max_height = 8
+      local num_stash_types = 4 -- Assuming 4 types/slots for stash items
+      local total_stash_block_width = (num_stash_types * bar_width) + ((num_stash_types - 1) * bar_h_spacing)
+
+      -- Debug print for Player 1's stash_counts
+      if p.id == 1 then
+        local debug_stash_text = "P1 SC: " .. type(p.stash_counts)
+        if type(p.stash_counts) == "table" then
+          debug_stash_text = debug_stash_text .. " #" .. #p.stash_counts .. "{"
+          for si=1, #p.stash_counts do -- Iterate up to actual length if less than 4
+            debug_stash_text = debug_stash_text .. (p.stash_counts[si] or "nil") .. (si < #p.stash_counts and "," or "")
           end
-          print(item_text, print_x_item, stash_item_y, item_color)
+          debug_stash_text = debug_stash_text .. "}"
+        end
+        print(debug_stash_text, 1, screen_h - margin - 5, 7) -- Print at bottom-left
+      end
+
+      local block_render_start_x
+      if align_right then
+        block_render_start_x = current_x_anchor - total_stash_block_width
+      else
+        block_render_start_x = current_x_anchor
+      end
+
+      for k = 1, num_stash_types do
+        local count = (p.stash_counts and p.stash_counts[k]) or 0
+        local item_color = stash_slot_colors[k] or 7
+        
+        if count > 0 then
+          local bar_height = min(count, stash_item_max_height)
+          local current_bar_x_start = block_render_start_x + (k-1) * effective_bar_step
+          local current_bar_x_end = current_bar_x_start + bar_width - 1
+
+          if corner_cfg.stash_y_multiplier == 1 then -- Bars go down from score line
+            local bar_top_y = score_print_y + line_h -- Start Y for the bar (below score text's allocated line_h)
+            rectfill(current_bar_x_start, bar_top_y, current_bar_x_end, bar_top_y + bar_height - 1, item_color)
+          else -- Bars go up from score line (stash_y_multiplier == -1)
+            local bar_bottom_y = score_print_y - 1 -- End Y for the bar (above score text's allocated line_h)
+            rectfill(current_bar_x_start, bar_bottom_y - bar_height + 1, current_bar_x_end, bar_bottom_y, item_color)
+          end
         end
       end
     end

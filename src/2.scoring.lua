@@ -113,5 +113,5 @@ function score_pieces()
   pieces = remaining_pieces
 end
 
--- Renamed from score_attackers to score_pieces to reflect broader scope
-score_pieces = score_pieces
+-- Renamed from score_pieces to update_game_state to reflect broader scope
+update_game_state = score_pieces
