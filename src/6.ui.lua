@@ -98,22 +98,6 @@ function ui.draw_game_hud()
         total_stash_block_width = 0
       end
       
-      -- Updated debug print for Player 1's stash_counts to handle map-like table
-      if p.id == 1 then
-        local debug_stash_text = "P1 SC: " .. type(p.stash_counts)
-        if type(p.stash_counts) == "table" then
-          debug_stash_text = debug_stash_text .. " {"
-          local first_entry = true
-          for c_key, c_val in pairs(p.stash_counts) do
-            if not first_entry then debug_stash_text = debug_stash_text .. ", " end
-            debug_stash_text = debug_stash_text .. tostring(c_key) .. ":" .. tostring(c_val)
-            first_entry = false
-          end
-          debug_stash_text = debug_stash_text .. "}"
-        end
-        print(debug_stash_text, 1, screen_h - margin - 5, 7) 
-      end
-
       local block_render_start_x
       if align_right then
         block_render_start_x = current_x_anchor - total_stash_block_width
