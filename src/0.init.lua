@@ -2,6 +2,7 @@
 -- p8panic - A game of tactical geometry
 
 player_manager = {} -- Initialize player_manager globally here
+STASH_SIZE = 6 -- Default stash size, configurable in menu (min 3, max 10)
 create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua now)
 pieces = {} -- Initialize pieces globally here
 LASER_LEN = 60 -- Initialize LASER_LEN globally here
@@ -131,7 +132,8 @@ function init_cursors(num_players)
       pending_type = "defender",  -- "defender", "attacker", "capture"
       pending_color = (p_obj and p_obj:get_ghost_color()) or 7,
       pending_orientation = 0,
-      return_cooldown = 0
+      return_cooldown = 0,
+      color_select_idx = 1 -- For cycling stash colors during placement
     }
   end
 end
@@ -213,7 +215,15 @@ function _init()
   -- Start in menu state by default (current_game_state = GAME_STATE_MENU)
 end
 
+
 function update_menu_state()
+  -- Adjust stash size with left/right
+  if btnp(⬅️) then
+    STASH_SIZE = max(3, STASH_SIZE - 1)
+  elseif btnp(➡️) then
+    STASH_SIZE = min(10, STASH_SIZE + 1)
+  end
+  -- Start game
   if btnp(❎) or btnp(🅾️) then
     go_to_state(GAME_STATE_PLAYING)
   end
@@ -241,10 +251,13 @@ function _update()
   end
 end
 
+
 function draw_menu_state()
   print("P8PANIC", 50, 50, 7)
   print("PRESS X OR O", 40, 70, 8)
   print("TO START", 50, 80, 8)
+  print("STASH SIZE: "..STASH_SIZE, 36, 100, 11)
+  print("(\x8e/\x91 to set 3-10)", 24, 110, 6) -- ⬅️/➡️
 end
 
 function draw_playing_state_elements()
@@ -264,7 +277,8 @@ function draw_playing_state_elements()
     local current_player_obj = player_manager.get_player(i)
     if not current_player_obj then goto next_cursor_draw end -- Skip if no player object
 
-    local cursor_draw_color = (current_player_obj and current_player_obj:get_ghost_color()) or cur.pending_color
+    -- In placement mode, use the selected color for the ghost piece
+    local cursor_draw_color = cur.pending_color or ((current_player_obj and current_player_obj:get_ghost_color()) or 7)
 
     if cur.control_state == 0 or cur.control_state == 2 then
       if cur.pending_type == "defender" then
@@ -304,10 +318,21 @@ function draw_playing_state_elements()
     if p_obj then
       local score_txt = p_obj:get_score() .. ""
       local p_color = p_obj:get_color()
-      if i == 1 then print(score_txt, margin, margin, p_color)
-      elseif i == 2 then print(score_txt, 128 - margin - #score_txt * font_width, margin, p_color)
-      elseif i == 3 then print(score_txt, margin, 128 - margin - font_height, p_color)
-      elseif i == 4 then print(score_txt, 128 - margin - #score_txt * font_width, 128 - margin - font_height, p_color)
+      -- Draw score in corner
+      local x, y = margin, margin
+      if i == 1 then x, y = margin, margin
+      elseif i == 2 then x, y = 128 - margin - #score_txt * font_width, margin
+      elseif i == 3 then x, y = margin, 128 - margin - font_height
+      elseif i == 4 then x, y = 128 - margin - #score_txt * font_width, 128 - margin - font_height
+      end
+      print(score_txt, x, y, p_color)
+      -- Draw stash below/above score, one color per line
+      local stash_y = y + font_height + 1
+      for color, count in pairs(p_obj.stash) do
+        if count > 0 then
+          print("["..count.."]", x, stash_y, color)
+          stash_y = stash_y + font_height
+        end
       end
     end
   end

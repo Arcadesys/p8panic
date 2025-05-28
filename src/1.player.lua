@@ -14,8 +14,8 @@ function Player:new(id, initial_score, color, ghost_color) -- Added initial_scor
     ghost_color = ghost_color,
     stash = {} -- Initialize stash as an empty table
   }
-  -- Initialize stash with 6 pieces of the player's own color
-  instance.stash[color] = 6 
+  -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player's own color
+  instance.stash[color] = STASH_SIZE or 6
   setmetatable(instance, self)
   return instance
 end
