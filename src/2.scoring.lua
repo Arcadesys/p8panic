@@ -53,29 +53,21 @@ function score_pieces()
               local attacker_player = player_manager.get_player(attacker_obj.owner_id)
               local defender_player = player_manager.get_player(defender_obj.owner_id)
 
-              if defender_obj.hits == 2 then
-                defender_obj.state = "unsuccessful" -- Defender is hit, but not overcharged
-                if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
-                  attacker_player:add_score(1)
-                end
-              elseif defender_obj.hits >= 3 then -- Changed to >= 3
-                defender_obj.state = "overcharged"
-                if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
-                  -- Score for the hit
-                  attacker_player:add_score(1)
-                  -- Defender is now overcharged. The defender\'s owner can use \'capture\' mode
-                  -- to capture attackers targeting this defender. The defender itself is not
-                  -- removed by this interaction, nor does the attacker\'s player capture the defender\'s color.
-                end
-              elseif defender_obj.hits == 1 then
-                defender_obj.state = "successful" -- Hit once, still neutral
+              -- Award score to attacker if they hit an opponent's defender
+              if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
+                attacker_player:add_score(1)
               end
-              -- No break here, an attacker's laser can pass through multiple segments of a defender
-              -- or even multiple defenders if LASER_LEN is long enough and pieces are aligned.
-              -- However, for scoring, we usually count one hit per attacker-defender pair.
-              -- The current logic correctly adds to .hits for each segment intersected.
-              -- If an attacker should only score once per defender, regardless of segments,
-              -- a flag would be needed here. For now, assuming hits accumulate per segment.
+
+              -- Update defender state based on total hits
+              if defender_obj.hits == 1 then
+                defender_obj.state = "successful" -- Hit once
+              elseif defender_obj.hits == 2 then
+                defender_obj.state = "unsuccessful" -- Defender is hit twice
+              elseif defender_obj.hits >= 3 then
+                defender_obj.state = "overcharged" -- Defender is hit three or more times
+              end
+              -- Only count one hit per attacker-defender pair, then stop checking other segments
+              break
             end
           end
         end
@@ -88,18 +80,20 @@ function score_pieces()
   -- Score defenders based on incoming attackers
   for _, p_obj in ipairs(pieces) do
     if p_obj and p_obj.type == "defender" then
-      local num_attackers_targeting = 0
+      local num_total_attackers_targeting = 0
       if p_obj.targeting_attackers then
-        num_attackers_targeting = #p_obj.targeting_attackers
+        num_total_attackers_targeting = #p_obj.targeting_attackers
       end
+      p_obj.dbg_target_count = num_total_attackers_targeting -- Store for on-screen debugging
 
-      if num_attackers_targeting <= 1 then
+      if num_total_attackers_targeting <= 1 then -- Defender scores if 0 or 1 attacker targets it
         local defender_player = player_manager.get_player(p_obj.owner_id)
         if defender_player then
           defender_player:add_score(1)
           -- Potentially update defender state here if needed, e.g., p_obj.state = "defending_well"
         end
       end
+      -- If num_total_attackers_targeting is 2 or more, the defender does not score a point.
     end
   end
 
