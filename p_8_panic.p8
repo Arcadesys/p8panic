@@ -135,7 +135,8 @@ function init_cursors(num_players)
       pending_type = "defender",  -- "defender", "attacker", "capture"
       pending_color = (p_obj and p_obj:get_ghost_color()) or 7,
       pending_orientation = 0,
-      return_cooldown = 0
+      return_cooldown = 0,
+      color_select_idx = 1 -- For cycling stash colors during placement
     }
   end
 end
@@ -279,7 +280,8 @@ function draw_playing_state_elements()
     local current_player_obj = player_manager.get_player(i)
     if not current_player_obj then goto next_cursor_draw end -- Skip if no player object
 
-    local cursor_draw_color = (current_player_obj and current_player_obj:get_ghost_color()) or cur.pending_color
+    -- In placement mode, use the selected color for the ghost piece
+    local cursor_draw_color = cur.pending_color or ((current_player_obj and current_player_obj:get_ghost_color()) or 7)
 
     if cur.control_state == 0 or cur.control_state == 2 then
       if cur.pending_type == "defender" then
@@ -1048,8 +1050,29 @@ function update_controls()
         end
       end
 
+
     elseif cur.control_state == CSTATE_ROTATE_PLACE then
-      -- Rotate pending piece using d-pad.
+      -- Gather available colors in stash
+      local available_colors = {}
+      for color, count in pairs(current_player_obj.stash) do
+        if count > 0 then add(available_colors, color) end
+      end
+      -- If no color, fallback to player's own color
+      if #available_colors == 0 then available_colors = {current_player_obj:get_color()} end
+      -- Clamp color_select_idx
+      if cur.color_select_idx > #available_colors then cur.color_select_idx = 1 end
+      if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
+
+      -- Cycle color selection with up/down
+      if btnp(⬆️, i - 1) then
+        cur.color_select_idx = cur.color_select_idx - 1
+        if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
+      elseif btnp(⬇️, i - 1) then
+        cur.color_select_idx = cur.color_select_idx + 1
+        if cur.color_select_idx > #available_colors then cur.color_select_idx = 1 end
+      end
+
+      -- Rotate pending piece using left/right
       if btn(⬅️, i - 1) then
         cur.pending_orientation = cur.pending_orientation - rotation_speed
         if cur.pending_orientation < 0 then cur.pending_orientation = cur.pending_orientation + 1 end
@@ -1058,6 +1081,9 @@ function update_controls()
         cur.pending_orientation = cur.pending_orientation + rotation_speed
         if cur.pending_orientation >= 1 then cur.pending_orientation = cur.pending_orientation - 1 end
       end
+
+      -- Set pending_color to selected color
+      cur.pending_color = available_colors[cur.color_select_idx] or current_player_obj:get_color()
 
       -- Confirm placement with Button X.
       if btnp(❎, i - 1) then

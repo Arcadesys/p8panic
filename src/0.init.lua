@@ -132,7 +132,8 @@ function init_cursors(num_players)
       pending_type = "defender",  -- "defender", "attacker", "capture"
       pending_color = (p_obj and p_obj:get_ghost_color()) or 7,
       pending_orientation = 0,
-      return_cooldown = 0
+      return_cooldown = 0,
+      color_select_idx = 1 -- For cycling stash colors during placement
     }
   end
 end
@@ -276,7 +277,8 @@ function draw_playing_state_elements()
     local current_player_obj = player_manager.get_player(i)
     if not current_player_obj then goto next_cursor_draw end -- Skip if no player object
 
-    local cursor_draw_color = (current_player_obj and current_player_obj:get_ghost_color()) or cur.pending_color
+    -- In placement mode, use the selected color for the ghost piece
+    local cursor_draw_color = cur.pending_color or ((current_player_obj and current_player_obj:get_ghost_color()) or 7)
 
     if cur.control_state == 0 or cur.control_state == 2 then
       if cur.pending_type == "defender" then
