@@ -2,7 +2,8 @@
 -- This file will contain functions for drawing UI elements,
 -- including the main menu and in-game HUD.
 
---#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size game_timer tostring rectfill min type pairs ipairs btnp max STASH_SIZE
+--#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size game_timer tostring rectfill min type pairs ipairs btnp max STASH_SIZE countdown_timer line cos sin all
+
 ui = {}
 -- Removed local caching of N_PLAYERS and player_manager (NP, PM)
 -- Functions will use global N_PLAYERS and player_manager directly for up-to-date values.
@@ -264,13 +265,14 @@ function ui.update_main_menu_logic() -- Renamed from _update_main_menu_logic
   -- Select option
   if btnp(5) then -- ❎ (X)
     if menu_option == 4 then -- Start Game
-      player_count = menu_player_count
-      stash_count = menu_stash_size
+      -- Update N_PLAYERS and STASH_SIZE from menu selections
       N_PLAYERS = menu_player_count
       STASH_SIZE = menu_stash_size
-      -- game_timer is already set
-      global_game_state = "in_game"
-      printh("Menu: Start Game. P:"..player_count.." S:"..stash_count.." T:"..game_timer)
+      -- game_timer is already set globally by menu navigation
+
+      initiate_game_start_request = true -- Set the flag to request game start
+      printh("Menu: Requested Start Game. P:"..N_PLAYERS.." S:"..STASH_SIZE.." T:"..game_timer)
+      -- DO NOT change global_game_state here directly.
     elseif menu_option == 5 then -- Finish Game (New Option)
       N_PLAYERS = menu_player_count -- Set N_PLAYERS from current menu selection
       STASH_SIZE = menu_stash_size -- Set STASH_SIZE for consistency
@@ -311,14 +313,62 @@ local SPRITES = {
 -- Define menu items
 ui.menu_items = {
   {text="CONTINUE", action=function() gs.set_state("in_game") end, visible = function() return gs.current_state_name == "paused" end},
-  {text="FINISH GAME", action=function() gs.set_state("game_over") end, visible = function() return gs.current_state_name == "paused" end}, -- New item
+  {text="FINISH GAME", action=function() gs.set_state("game_over") end, visible = function() return gs.current_state_name == "paused" end},
   {text="RETURN TO MAIN MENU", action=function() gs.set_state("main_menu") end, visible = function() return gs.current_state_name == "paused" end},
   {text="START GAME", action=function() gs.set_state("in_game") end, visible = function() return gs.current_state_name == "main_menu" end},
   {text="PLAYERS:", type="selector", options=config.player_options, current_idx_func=function() return config.current_players_idx end, action=function(idx) config.set_players_idx(idx) end, value_text_func=function() return config.get_players_value() end, visible = function() return gs.current_state_name == "main_menu" end},
   {text="SET TIMER:", type="selector", options=config.timer_options, current_idx_func=function() return config.current_timer_idx end, action=function(idx) config.set_timer_idx(idx) end, value_text_func=function() return config.get_timer_value().." MIN" end, visible = function() return gs.current_state_name == "main_menu" end},
   {text="HOW TO PLAY", action=function() gs.set_state("how_to_play") end, visible = function() return gs.current_state_name == "main_menu" end},
   {text="FAVOURITE", action=function() favourite_current_game() end, icon=SPRITES.HEART_ICON, visible = function() return gs.current_state_name == "main_menu" end},
-  {text="RESET CART", action=function() reset_cart() end}, -- Remains visible in all menus
-  {text="SHUTDOWN", action=function() shutdown() end} -- Remains visible in all menus
-  -- Add other menu items here
-}
+  {text="RESET CART", action=function() reset_cart() end}, 
+  {text="SHUTDOWN", action=function() shutdown() end}
+} -- Ensure the table is properly closed here
+
+function ui.draw_countdown_screen()
+  -- printh("ui.draw_countdown_screen called. countdown_timer: " .. tostr(countdown_timer)) -- DEBUG -- Temporarily commented out
+  cls(0) -- Clear screen
+
+  if type(ui.draw_playfield_background) == "function" then ui.draw_playfield_background() end
+  if type(ui.draw_game_hud) == "function" then ui.draw_game_hud() end -- Changed from draw_player_huds
+  if type(cursors) == "table" and type(cursors.draw_all) == "function" then cursors.draw_all() end -- Changed from ui.draw_cursors
+  if type(pieces) == "table" and type(pieces.draw_all) == "function" then pieces.draw_all() end -- Changed from ui.draw_pieces
+
+  local countdown_text = ""
+  local current_cd_time = countdown_timer or 0
+
+  if current_cd_time > 2 then
+    countdown_text = "3"
+  elseif current_cd_time > 1 then
+    countdown_text = "2"
+  elseif current_cd_time > 0 then
+    countdown_text = "1"
+  end
+  
+  local text_width = #countdown_text * 4
+  print(countdown_text, 64 - text_width / 2, 60, 7)
+  -- printh("ui.draw_countdown_screen finished.") -- DEBUG -- Temporarily commented out
+end
+
+function ui.draw_panic_screen() -- New function for drawing "Panic!"
+  -- printh("ui.draw_panic_screen called. panic_display_timer: " .. tostr(panic_display_timer)) -- DEBUG -- Temporarily commented out
+  cls(0) -- Clear screen
+  -- Optionally, draw playfield elements here too if they should be visible
+  if type(ui.draw_playfield_background) == "function" then ui.draw_playfield_background() end
+  if type(ui.draw_game_hud) == "function" then ui.draw_game_hud() end -- Changed from draw_player_huds
+  if type(cursors) == "table" and type(cursors.draw_all) == "function" then cursors.draw_all() end -- Changed from ui.draw_cursors
+  if type(pieces) == "table" and type(pieces.draw_all) == "function" then pieces.draw_all() end -- Changed from ui.draw_pieces
+
+  local text = "Panic!"
+  local text_width = #text * 4
+  local x = 64 - text_width / 2
+  local y = 60
+
+  -- Simple screen shake effect
+  if panic_display_timer > 0 then
+    local shake_intensity = 2
+    x += flr(rnd(shake_intensity * 2 + 1)) - shake_intensity
+    y += flr(rnd(shake_intensity * 2 + 1)) - shake_intensity
+  end
+
+  print(text, x, y, 8) -- Use a different color, e.g., red (8)
+end

@@ -56,14 +56,14 @@ end
 function Player:use_piece_from_stash(piece_color_to_use)
   if self.stash_counts[piece_color_to_use] and self.stash_counts[piece_color_to_use] > 0 then
     self.stash_counts[piece_color_to_use] -= 1
-    printh("P"..self.id.." used piece color "..piece_color_to_use..". Stash count: "..(self.stash_counts[piece_color_to_use] or 0))
+    printh("P"..self.id.." used c:"..piece_color_to_use..". Stash: "..(self.stash_counts[piece_color_to_use] or 0))
     
     if self.stash[piece_color_to_use] and self.stash[piece_color_to_use] > 0 then
       self.stash[piece_color_to_use] -= 1
     end
     return true
   else
-    printh("P"..self.id.." has no pieces of color "..piece_color_to_use.." in stash_counts.")
+    printh("P"..self.id.." no c:"..piece_color_to_use.." in stash_counts.")
     return false
   end
 end
@@ -92,11 +92,11 @@ function player_manager.init_players(num_players)
     if Player and Player.new then
       player_manager.current_players[i] = Player:new(i, 0, p_color, p_ghost_color)
     else
-      printh("Error: Player or Player:new not found during init_players!")
+      printh("Err: Player:new fail init_players!")
       player_manager.current_players[i] = {id=i, score=0, color=p_color, ghost_color=p_ghost_color, stash={}, stash_counts={[p_color]=STASH_SIZE or 6}} 
     end
   end
-  printh("Initialized " .. num_players .. " players.")
+  printh("Init " .. num_players .. " players.")
 end
 
 function player_manager.get_player(id)
@@ -115,7 +115,7 @@ function create_player(id, initial_score, color, ghost_color)
   if Player and Player.new then
     return Player:new(id, initial_score, color, ghost_color)
   else
-    printh("Error: Player or Player.new is not defined when calling create_player.")
+    printh("Err: Player.new undef create_player.")
     return { 
       id = id, 
       score = initial_score or 0, 

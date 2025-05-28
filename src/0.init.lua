@@ -10,6 +10,9 @@ cursors = {}
 CAPTURE_RADIUS_SQUARED = 64
 
 global_game_state = "main_menu"
+countdown_timer = 0
+initiate_game_start_request = false
+panic_display_timer = 0
 
 player_count = N_PLAYERS
 stash_count = STASH_SIZE

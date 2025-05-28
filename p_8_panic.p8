@@ -1,5 +1,5 @@
 pico-8 cartridge // http://www.pico-8.com
-version 16
+version 42
 __lua__
 ---@diagnostic disable: undefined-global
 
@@ -13,6 +13,9 @@ cursors = {}
 CAPTURE_RADIUS_SQUARED = 64
 
 global_game_state = "main_menu"
+countdown_timer = 0
+initiate_game_start_request = false
+panic_display_timer = 0
 
 player_count = N_PLAYERS
 stash_count = STASH_SIZE
@@ -174,14 +177,14 @@ end
 function Player:use_piece_from_stash(piece_color_to_use)
   if self.stash_counts[piece_color_to_use] and self.stash_counts[piece_color_to_use] > 0 then
     self.stash_counts[piece_color_to_use] -= 1
-    printh("P"..self.id.." used piece color "..piece_color_to_use..". Stash count: "..(self.stash_counts[piece_color_to_use] or 0))
+    printh("P"..self.id.." used c:"..piece_color_to_use..". Stash: "..(self.stash_counts[piece_color_to_use] or 0))
     
     if self.stash[piece_color_to_use] and self.stash[piece_color_to_use] > 0 then
       self.stash[piece_color_to_use] -= 1
     end
     return true
   else
-    printh("P"..self.id.." has no pieces of color "..piece_color_to_use.." in stash_counts.")
+    printh("P"..self.id.." no c:"..piece_color_to_use.." in stash_counts.")
     return false
   end
 end
@@ -210,11 +213,11 @@ function player_manager.init_players(num_players)
     if Player and Player.new then
       player_manager.current_players[i] = Player:new(i, 0, p_color, p_ghost_color)
     else
-      printh("Error: Player or Player:new not found during init_players!")
+      printh("Err: Player:new fail init_players!")
       player_manager.current_players[i] = {id=i, score=0, color=p_color, ghost_color=p_ghost_color, stash={}, stash_counts={[p_color]=STASH_SIZE or 6}} 
     end
   end
-  printh("Initialized " .. num_players .. " players.")
+  printh("Init " .. num_players .. " players.")
 end
 
 function player_manager.get_player(id)
@@ -233,7 +236,7 @@ function create_player(id, initial_score, color, ghost_color)
   if Player and Player.new then
     return Player:new(id, initial_score, color, ghost_color)
   else
-    printh("Error: Player or Player.new is not defined when calling create_player.")
+    printh("Err: Player.new undef create_player.")
     return { 
       id = id, 
       score = initial_score or 0, 
@@ -588,25 +591,9 @@ function create_piece(params) -- `params` should include owner_id, type, positio
   end
   return piece_obj
 end
-
--- The return statement makes these functions/tables available when this file is included.
--- We might not need to return Piece, Attacker, Defender if only create_piece is used externally.
--- create_piece is global by default
--- Or, more structured:
--- return {
---   create_piece = create_piece
--- }
 -->8
 -- src/1.placement.lua
 -- Placement Module
---#globals create_piece pieces ray_segment_intersect LASER_LEN player_manager score_pieces
---#globals cos sin max min sqrt abs add all ipairs
---#globals N_PLAYERS -- Though not directly used, it's part of the context of 0.init
-
--- Cached math functions (assuming they are available globally from 0.init.lua or PICO-8 defaults)
--- local cos, sin = cos, sin -- Or just use them directly
--- local max, min = max, min
--- local sqrt, abs = sqrt, abs
 
 function legal_placement(piece_params)
   local bw, bh = 128, 128
@@ -745,13 +732,15 @@ function place_piece(piece_params, player_obj)
   end
 end
 -->8
---controls
+--#globals controls_disabled cursors player_manager btn btnp max min add ipairs pairs attempt_capture place_piece printh CSTATE_MOVE_SELECT CSTATE_ROTATE_PLACE CSTATE_COOLDOWN original_update_game_logic_func
 
 local CSTATE_MOVE_SELECT = 0
 local CSTATE_ROTATE_PLACE = 1
 local CSTATE_COOLDOWN = 2
 
 function update_controls()
+  if controls_disabled then return end -- Add this line to disable controls
+
   local cursor_speed = 2        -- pixels per frame; adjust as needed
   local rotation_speed = 0.02   -- rotation amount per frame; adjust
 
@@ -875,7 +864,8 @@ end
 -- This file will contain functions for drawing UI elements,
 -- including the main menu and in-game HUD.
 
---#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size game_timer tostring rectfill min type pairs ipairs btnp max STASH_SIZE
+--#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size game_timer tostring rectfill min type pairs ipairs btnp max STASH_SIZE countdown_timer line cos sin all
+
 ui = {}
 -- Removed local caching of N_PLAYERS and player_manager (NP, PM)
 -- Functions will use global N_PLAYERS and player_manager directly for up-to-date values.
@@ -1137,13 +1127,14 @@ function ui.update_main_menu_logic() -- Renamed from _update_main_menu_logic
   -- Select option
   if btnp(5) then -- ❎ (X)
     if menu_option == 4 then -- Start Game
-      player_count = menu_player_count
-      stash_count = menu_stash_size
+      -- Update N_PLAYERS and STASH_SIZE from menu selections
       N_PLAYERS = menu_player_count
       STASH_SIZE = menu_stash_size
-      -- game_timer is already set
-      global_game_state = "in_game"
-      printh("Menu: Start Game. P:"..player_count.." S:"..stash_count.." T:"..game_timer)
+      -- game_timer is already set globally by menu navigation
+
+      initiate_game_start_request = true -- Set the flag to request game start
+      printh("Menu: Requested Start Game. P:"..N_PLAYERS.." S:"..STASH_SIZE.." T:"..game_timer)
+      -- DO NOT change global_game_state here directly.
     elseif menu_option == 5 then -- Finish Game (New Option)
       N_PLAYERS = menu_player_count -- Set N_PLAYERS from current menu selection
       STASH_SIZE = menu_stash_size -- Set STASH_SIZE for consistency
@@ -1184,17 +1175,65 @@ local SPRITES = {
 -- Define menu items
 ui.menu_items = {
   {text="CONTINUE", action=function() gs.set_state("in_game") end, visible = function() return gs.current_state_name == "paused" end},
-  {text="FINISH GAME", action=function() gs.set_state("game_over") end, visible = function() return gs.current_state_name == "paused" end}, -- New item
+  {text="FINISH GAME", action=function() gs.set_state("game_over") end, visible = function() return gs.current_state_name == "paused" end},
   {text="RETURN TO MAIN MENU", action=function() gs.set_state("main_menu") end, visible = function() return gs.current_state_name == "paused" end},
   {text="START GAME", action=function() gs.set_state("in_game") end, visible = function() return gs.current_state_name == "main_menu" end},
   {text="PLAYERS:", type="selector", options=config.player_options, current_idx_func=function() return config.current_players_idx end, action=function(idx) config.set_players_idx(idx) end, value_text_func=function() return config.get_players_value() end, visible = function() return gs.current_state_name == "main_menu" end},
   {text="SET TIMER:", type="selector", options=config.timer_options, current_idx_func=function() return config.current_timer_idx end, action=function(idx) config.set_timer_idx(idx) end, value_text_func=function() return config.get_timer_value().." MIN" end, visible = function() return gs.current_state_name == "main_menu" end},
   {text="HOW TO PLAY", action=function() gs.set_state("how_to_play") end, visible = function() return gs.current_state_name == "main_menu" end},
   {text="FAVOURITE", action=function() favourite_current_game() end, icon=SPRITES.HEART_ICON, visible = function() return gs.current_state_name == "main_menu" end},
-  {text="RESET CART", action=function() reset_cart() end}, -- Remains visible in all menus
-  {text="SHUTDOWN", action=function() shutdown() end} -- Remains visible in all menus
-  -- Add other menu items here
-}
+  {text="RESET CART", action=function() reset_cart() end}, 
+  {text="SHUTDOWN", action=function() shutdown() end}
+} -- Ensure the table is properly closed here
+
+function ui.draw_countdown_screen()
+  -- printh("ui.draw_countdown_screen called. countdown_timer: " .. tostr(countdown_timer)) -- DEBUG -- Temporarily commented out
+  cls(0) -- Clear screen
+
+  if type(ui.draw_playfield_background) == "function" then ui.draw_playfield_background() end
+  if type(ui.draw_game_hud) == "function" then ui.draw_game_hud() end -- Changed from draw_player_huds
+  if type(cursors) == "table" and type(cursors.draw_all) == "function" then cursors.draw_all() end -- Changed from ui.draw_cursors
+  if type(pieces) == "table" and type(pieces.draw_all) == "function" then pieces.draw_all() end -- Changed from ui.draw_pieces
+
+  local countdown_text = ""
+  local current_cd_time = countdown_timer or 0
+
+  if current_cd_time > 2 then
+    countdown_text = "3"
+  elseif current_cd_time > 1 then
+    countdown_text = "2"
+  elseif current_cd_time > 0 then
+    countdown_text = "1"
+  end
+  
+  local text_width = #countdown_text * 4
+  print(countdown_text, 64 - text_width / 2, 60, 7)
+  -- printh("ui.draw_countdown_screen finished.") -- DEBUG -- Temporarily commented out
+end
+
+function ui.draw_panic_screen() -- New function for drawing "Panic!"
+  -- printh("ui.draw_panic_screen called. panic_display_timer: " .. tostr(panic_display_timer)) -- DEBUG -- Temporarily commented out
+  cls(0) -- Clear screen
+  -- Optionally, draw playfield elements here too if they should be visible
+  if type(ui.draw_playfield_background) == "function" then ui.draw_playfield_background() end
+  if type(ui.draw_game_hud) == "function" then ui.draw_game_hud() end -- Changed from draw_player_huds
+  if type(cursors) == "table" and type(cursors.draw_all) == "function" then cursors.draw_all() end -- Changed from ui.draw_cursors
+  if type(pieces) == "table" and type(pieces.draw_all) == "function" then pieces.draw_all() end -- Changed from ui.draw_pieces
+
+  local text = "Panic!"
+  local text_width = #text * 4
+  local x = 64 - text_width / 2
+  local y = 60
+
+  -- Simple screen shake effect
+  if panic_display_timer > 0 then
+    local shake_intensity = 2
+    x += flr(rnd(shake_intensity * 2 + 1)) - shake_intensity
+    y += flr(rnd(shake_intensity * 2 + 1)) - shake_intensity
+  end
+
+  print(text, x, y, 8) -- Use a different color, e.g., red (8)
+end
 -->8
 -- src/7.cursor.lua
 --#eval player_manager=player_manager,rectfill=rectfill,circfill=circfill,line=line,cos=cos,sin=sin,print=print,create_piece=create_piece
@@ -1309,11 +1348,10 @@ end
 -- src/8.main.lua
 -- Main game loop functions (_init, _update, _draw)
 
---#globals player_manager pieces cursors ui N_PLAYERS STASH_SIZE global_game_state game_timer time flr string add table
+--#globals player_manager pieces cursors ui N_PLAYERS STASH_SIZE global_game_state game_timer time flr string add table countdown_timer controls_disabled config create_cursor
 --#globals menu_option menu_player_count menu_stash_size player_count stash_count
---#globals create_player create_cursor internal_update_game_logic update_game_logic update_controls
---#globals original_update_game_logic_func original_update_controls_func update_game_state
---#globals printh all cls btnp menuitem print
+--#globals internal_update_game_logic update_game_logic update_controls original_update_game_logic_func original_update_controls_func update_game_state game_state_changed
+--#globals printh all cls btnp menuitem print rectfill tostr initiate_game_start_request panic_display_timer
 
 -- Ensure global variables are accessible in this file
 if not N_PLAYERS then N_PLAYERS = 2 end  -- Default fallback
@@ -1328,6 +1366,7 @@ local remaining_time_seconds = 0
 local game_winners = {} -- Stores list of winner IDs
 local game_max_score = -1 -- Stores the max score achieved
 local processed_game_over = false -- Flag to ensure winner calculation runs once per game_over state entry
+local controls_disabled = false -- Add this line
 
 ------------------------------------------
 -- Main Pico-8 Functions
@@ -1395,6 +1434,13 @@ function _init()
   end
 end
 
+function start_countdown()
+  global_game_state = "countdown"
+  countdown_timer = 3 -- 3 seconds
+  controls_disabled = true
+  printh("EVENT: Countdown started! Initial CD: " .. tostr(countdown_timer)) -- Added detail
+end
+
 function _calculate_and_store_winners()
   local current_max_score = -1
   local current_winners = {}
@@ -1425,74 +1471,194 @@ function _calculate_and_store_winners()
 end
 
 function _update()
-  if global_game_state == "main_menu" then
-    if ui_handler and ui_handler.update_main_menu_logic then
-      ui_handler.update_main_menu_logic()
-    else
-      printh("Warning: ui_handler.update_main_menu_logic not found!")
+  printh("UPDATE START State: " .. tostr(global_game_state) .. " CD: " .. tostr(countdown_timer) .. " Panic: " .. tostr(panic_display_timer) .. " CtrlDisabled: " .. tostr(controls_disabled))
+
+  if initiate_game_start_request then -- Check the flag
+    initiate_game_start_request = false -- Reset the flag
+    init_game_properly() -- Call the function that starts the countdown
+    printh("UPDATE: init_game_properly done by request. New state: " .. tostr(global_game_state))
+    return -- Exit _update early as state is changing
+  end
+
+  if global_game_state == "countdown" then
+    countdown_timer -= 2/60 -- Made countdown twice as fast
+    if countdown_timer <= 0 then
+      printh("UPDATE: Countdown timer <= 0. Old CD: " .. tostr(countdown_timer) .. ". Changing to panic_display.")
+      global_game_state = "panic_display"
+      panic_display_timer = 1.5 -- Show "Panic!" for 1.5 seconds
+      controls_disabled = true -- Keep controls disabled during panic display
+      printh("UPDATE: State IS NOW panic_display. Panic Timer: " .. tostr(panic_display_timer))
     end
-    processed_game_over = false -- Reset when returning to menu
-    if global_game_state == "in_game" then
-      -- N_PLAYERS and STASH_SIZE have been set by menu logic
-      init_game_properly()
-    elseif global_game_state == "how_to_play" then
-      -- handled below
-    end
-  elseif global_game_state == "how_to_play" then
-    processed_game_over = false -- Reset if coming from game_over
-    -- return to menu on X
-    if btnp(5) then
-      global_game_state = "main_menu"
-      _init_main_menu_state()
+  elseif global_game_state == "panic_display" then -- Add this new state block
+    panic_display_timer -= 1/60
+    if panic_display_timer <= 0 then
+      printh("UPDATE: Panic timer <= 0. Old Panic: " .. tostr(panic_display_timer) .. ". Changing to in_game.")
+      global_game_state = "in_game"
+      controls_disabled = false
+      game_start_time = time()
+      if game_timer and type(game_timer) == "number" then
+          remaining_time_seconds = game_timer * 60
+      else
+          printh("UPDATE: game_timer not valid for setting remaining_time_seconds. Value: " .. tostr(game_timer))
+          remaining_time_seconds = 180 -- Default to 3 minutes if game_timer is problematic
+      end
+      printh("UPDATE: State IS NOW in_game. Start: " .. tostr(game_start_time) .. " Rem: " .. tostr(remaining_time_seconds))
     end
   elseif global_game_state == "in_game" then
-    _update_game_logic()
-    processed_game_over = false -- Reset flag
-
-    -- Timer logic
     if remaining_time_seconds > 0 then
-      remaining_time_seconds -= 1/30 -- Pico-8 runs at 30 FPS
+      remaining_time_seconds -= 1/60 -- Pico-8 runs at 60 FPS for _update
       if remaining_time_seconds <= 0 then
         remaining_time_seconds = 0
-        printh("Game Over! Time is up.")
+        printh("UPDATE: Game Over! Time is up.")
         if update_game_state then
           update_game_state() -- Recalculate scores one last time
         end
         global_game_state = "game_over"
-        -- Winner calculation will be handled by the "game_over" state block below
+        processed_game_over = false -- Ensure winner calculation will run
+        printh("UPDATE: State IS NOW game_over (time up).")
       end
+    else -- if remaining_time_seconds is already 0 or less
+        if global_game_state == "in_game" then 
+            printh("UPDATE: Game Over! Remaining time was already zero.")
+            global_game_state = "game_over"
+            processed_game_over = false
+            printh("UPDATE: State IS NOW game_over (remaining time zero).")
+        end
+    end
+    -- Actual game logic updates (player input, piece movement, scoring)
+    if not controls_disabled then
+        if update_controls then -- Call the main controls update function
+            update_controls()
+        end
+        if player_manager and player_manager.update_all_players then
+             player_manager.update_all_players() -- This might update player state based on control input
+        end
+        -- Add other game logic calls if they exist, e.g., for pieces
+        -- if pieces and pieces.update_all then pieces.update_all() end
     end
   elseif global_game_state == "game_over" then
     if not processed_game_over then
-      -- This block ensures player data is consistent if "Finish Game" was selected from menu
-      -- The menu logic in 6.ui.lua already attempts to call player_manager.init_players(N_PLAYERS)
-      -- before setting this state.
       _calculate_and_store_winners()
       processed_game_over = true
+      printh("UPDATE: Winners calculated for game_over.")
     end
     -- Wait for a button press to return to main menu
     if btnp(5) or btnp(4) then -- (X) or (O) button
       global_game_state = "main_menu"
       _init_main_menu_state()
+      printh("UPDATE: Returning to main_menu from game_over.")
+    end
+  end
+
+  if global_game_state == "main_menu" then
+    printh("UPDATE: In main_menu state. ui_handler type: " .. tostr(type(ui_handler)) .. ", update_main_menu_logic type: " .. tostr(type(ui_handler and ui_handler.update_main_menu_logic)))
+    if ui_handler and ui_handler.update_main_menu_logic then
+      ui_handler.update_main_menu_logic()
+    else
+      printh("UPDATE: ERROR - ui_handler.update_main_menu_logic not callable or ui_handler is nil.")
+    end
+  elseif global_game_state == "countdown" then
+    countdown_timer -= 2/60 -- Made countdown twice as fast
+    if countdown_timer <= 0 then
+      printh("UPDATE: Countdown timer <= 0. Old CD: " .. tostr(countdown_timer) .. ". Changing to panic_display.")
+      global_game_state = "panic_display"
+      panic_display_timer = 1.5 -- Show "Panic!" for 1.5 seconds
+      controls_disabled = true -- Keep controls disabled during panic display
+      printh("UPDATE: State IS NOW panic_display. Panic Timer: " .. tostr(panic_display_timer))
+    end
+  elseif global_game_state == "panic_display" then -- Add this new state block
+    panic_display_timer -= 1/60
+    if panic_display_timer <= 0 then
+      printh("UPDATE: Panic timer <= 0. Old Panic: " .. tostr(panic_display_timer) .. ". Changing to in_game.")
+      global_game_state = "in_game"
+      controls_disabled = false
+      game_start_time = time()
+      if game_timer and type(game_timer) == "number" then
+          remaining_time_seconds = game_timer * 60
+      else
+          printh("UPDATE: game_timer not valid for setting remaining_time_seconds. Value: " .. tostr(game_timer))
+          remaining_time_seconds = 180 -- Default to 3 minutes if game_timer is problematic
+      end
+      printh("UPDATE: State IS NOW in_game. Start: " .. tostr(game_start_time) .. " Rem: " .. tostr(remaining_time_seconds))
+    end
+  elseif global_game_state == "in_game" then
+    if remaining_time_seconds > 0 then
+      remaining_time_seconds -= 1/60 -- Pico-8 runs at 60 FPS for _update
+      if remaining_time_seconds <= 0 then
+        remaining_time_seconds = 0
+        printh("UPDATE: Game Over! Time is up.")
+        if update_game_state then
+          update_game_state() -- Recalculate scores one last time
+        end
+        global_game_state = "game_over"
+        processed_game_over = false -- Ensure winner calculation will run
+        printh("UPDATE: State IS NOW game_over (time up).")
+      end
+    else -- if remaining_time_seconds is already 0 or less
+        if global_game_state == "in_game" then 
+            printh("UPDATE: Game Over! Remaining time was already zero.")
+            global_game_state = "game_over"
+            processed_game_over = false
+            printh("UPDATE: State IS NOW game_over (remaining time zero).")
+        end
+    end
+    -- Actual game logic updates (player input, piece movement, scoring)
+    if not controls_disabled then
+        if update_controls then -- Call the main controls update function
+            update_controls()
+        end
+        if player_manager and player_manager.update_all_players then
+             player_manager.update_all_players() -- This might update player state based on control input
+        end
+        -- Add other game logic calls if they exist, e.g., for pieces
+        -- if pieces and pieces.update_all then pieces.update_all() end
+    end
+  elseif global_game_state == "game_over" then
+    if not processed_game_over then
+      _calculate_and_store_winners()
+      processed_game_over = true
+      printh("UPDATE: Winners calculated for game_over.")
+    end
+    -- Wait for a button press to return to main menu
+    if btnp(5) or btnp(4) then -- (X) or (O) button
+      global_game_state = "main_menu"
+      _init_main_menu_state()
+      printh("UPDATE: Returning to main_menu from game_over.")
     end
   end
 end
 
 function _draw()
+  cls(0) 
+  printh("DRAW START State: " .. tostr(global_game_state))
+
   if global_game_state == "main_menu" then
     if ui_handler and ui_handler.draw_main_menu then
       ui_handler.draw_main_menu()
-    else
-      cls(0) print("Error: draw_main_menu not found!", 20,60,8)
     end
   elseif global_game_state == "how_to_play" then
     if ui_handler and ui_handler.draw_how_to_play then
       ui_handler.draw_how_to_play()
+    end
+  elseif global_game_state == "countdown" then
+    -- printh("Draw: Countdown state") -- DEBUG -- Covered by DRAW START
+    if ui_handler and ui_handler.draw_countdown_screen then
+      ui_handler.draw_countdown_screen()
     else
-      cls(0) print("Error: draw_how_to_play not found!", 20,60,8)
+      print("NO UI - COUNTDOWN", 40, 60, 8)
+    end
+  elseif global_game_state == "panic_display" then -- Add this block
+    -- printh("Draw: Panic Display state") -- DEBUG -- Covered by DRAW START
+    if ui_handler and ui_handler.draw_panic_screen then
+      ui_handler.draw_panic_screen()
+    else
+      print("NO UI - PANIC DISPLAY", 40, 60, 8)
     end
   elseif global_game_state == "in_game" then
-    _draw_game_screen()
+    -- if ui_handler and ui_handler.draw_game_hud then -- This was replaced by _draw_game_screen
+    --   ui_handler.draw_game_hud()
+    -- end
+    _draw_game_screen() -- Draws timer, pieces, cursors, and HUD
   elseif global_game_state == "game_over" then
     if ui_handler and ui_handler.draw_winner_screen then
       ui_handler.draw_winner_screen() -- This function will use game_winners and game_max_score
@@ -1510,74 +1676,109 @@ end
 -- Menu Specific Logic (Initialization & Update)
 ------------------------------------------
 function _init_main_menu_state()
-  menu_option = 1 
-  -- Use global N_PLAYERS and STASH_SIZE as defaults for the menu
-  menu_player_count = N_PLAYERS 
-  menu_stash_size = STASH_SIZE   
-  -- game_timer is already a global, potentially set by previous menu interaction
-  printh("Main menu state initialized: P=" .. menu_player_count .. " S=" .. menu_stash_size .. " T:" .. game_timer)
+  global_game_state = "main_menu"
+  menu_option = 1 -- Default to first menu item
+  -- Reset player/stash counts to current config or defaults
+  if config and config.get_players_value then menu_player_count = config.get_players_value() else menu_player_count = N_PLAYERS end
+  menu_stash_size = STASH_SIZE -- Assuming STASH_SIZE is the relevant config for menu
+  if config and config.timer_options and config.current_timer_idx then game_timer = config.timer_options[config.current_timer_idx] else game_timer = 3 end -- Default game_timer
+
+  -- Reset game-specific variables if any were set
+  pieces = {}
+  cursors = {}
+  if player_manager and player_manager.reset_all_players then
+    player_manager.reset_all_players()
+  end
+  game_winners = {}
+  game_max_score = -1
+  processed_game_over = false
+  controls_disabled = false -- Ensure controls are enabled in menu
+end
+
+-- This function is called when "Start Game" is selected from the menu
+function _start_game()
+  -- Validate player and stash settings
+  if not menu_player_count or menu_player_count < 1 then
+    printh("Invalid player count: " .. tostring(menu_player_count) .. ". Cannot start game.")
+    return
+  end
+  if not menu_stash_size or menu_stash_size < 1 then
+    printh("Invalid stash size: " .. tostring(menu_stash_size) .. ". Cannot start game.")
+    return
+  end
+
+  N_PLAYERS = menu_player_count
+  STASH_SIZE = menu_stash_size
+
+  -- Initialize game state variables
+  global_game_state = "in_game"
+  player_count = N_PLAYERS
+  stash_count = STASH_SIZE
+
+  -- Notify other modules or systems of the new game state
+  if game_state_changed then
+    game_state_changed(global_game_state)
+  end
+
+  printh("Game starting with " .. N_PLAYERS .. " players and stash size " .. STASH_SIZE)
+
+  -- Start the countdown before actual game begins
+  start_countdown()
 end
 
 ------------------------------------------
 -- Game Specific Logic (Initialization, Update, Draw)
 ------------------------------------------
 function init_game_properly()
+  printh("EVENT: init_game_properly called. N_PLAYERS: " .. tostr(N_PLAYERS) .. ", STASH_SIZE: " .. tostr(STASH_SIZE))
+  
+  player_count = N_PLAYERS
+  stash_count = STASH_SIZE
+
   if player_manager and player_manager.init_players then
-    player_manager.init_players(N_PLAYERS) 
+    player_manager.init_players(N_PLAYERS)
   else
-    printh("CRITICAL Error: player_manager.init_players not found! Player module likely failed.")
-    -- Minimal fallback to prevent immediate crash, but game won\'t be right.
-    player_manager = player_manager or {} -- Ensure it exists
-    player_manager.current_players = {}
-    player_manager.get_player = function(id) return player_manager.current_players[id] end
-    -- This fallback won\'t have proper player objects from Player:new
+    printh("Error: player_manager.init_players is not defined!")
+    return -- Exit if critical function is missing
   end
 
-  pieces = {} 
-  cursors = {} 
+  pieces = {} -- Clear any existing pieces
+  cursors = {} -- Clear existing cursors
+
+  -- Create cursors for each player
   for i = 1, N_PLAYERS do
-    -- create_cursor should be a global function from its respective module
-    if create_cursor then
-      cursors[i] = create_cursor(i, 60 + i * 10, 60) 
+    if create_cursor then -- Check if create_cursor exists
+      add(cursors, create_cursor(i)) -- create_cursor should handle player-specific setup
     else
       printh("Error: create_cursor function not found!")
-      -- Corrected dummy cursor draw function
-      cursors[i] = { 
-        id=i, 
-        x=60+i*10, 
-        y=60, 
-        draw=function(self) print("C"..self.id,self.x,self.y,7) end 
-      } -- Dummy cursor
+    end
+  end
+  
+  -- Initialize player stashes (if not already handled by init_players)
+  for i=1, N_PLAYERS do
+    local p = player_manager.get_player(i)
+    if p and p.initialize_stash then 
+      p.initialize_stash(STASH_SIZE) 
     end
   end
 
-  -- Assign control functions
-  if update_controls then 
-    original_update_controls_func = update_controls
-    printh("Assigned original_update_controls_func from global update_controls.")
-  else
-    printh("Warning: global function 'update_controls' (from 5.controls.lua) not found. Controls might not work.")
-    original_update_controls_func = function() end 
-  end
+  -- Set the game state to start the countdown
+  start_countdown()
+
+  -- printh("Countdown started!") -- This is in start_countdown(), remove from here if redundant or keep for specific context
+  -- This specific printh is in start_countdown(), so it's removed from here to avoid duplication.
+  -- If it was meant to be here specifically, it can be re-added.
+
+  -- Reset game over processing flag
+  processed_game_over = false
+  game_winners = {} 
+  game_max_score = -1
   
-  -- Assign game logic update function (example: from 2.scoring.lua or similar)
-  -- Assuming the main game logic update function is named 'update_game_state' or similar from another module
-  if update_game_state then -- Example name, adjust if your game logic func is different
-    original_update_game_logic_func = update_game_state 
-    printh("Assigned original_update_game_logic_func from global update_game_state.")
-  else
-    printh("Warning: global 'update_game_state' (core game logic) not found. Game logic may not run.")
-    original_update_game_logic_func = function() end 
-  end
-
-  -- Initialize timer
-  game_start_time = time() -- Assuming time() gives seconds or a consistent unit
-  remaining_time_seconds = (game_timer or 3) * 60 -- Convert minutes to seconds
-  printh("Timer started: " .. remaining_time_seconds .. " seconds.")
-
-  printh("Game initialized with " .. N_PLAYERS .. " players and " .. STASH_SIZE .. " pieces each.")
+  printh("EVENT: Game initialized for " .. tostr(N_PLAYERS) .. " players. Countdown initiated.")
 end
 
+
+-- Original game logic update function (if needed for complex interactions)
 function _update_game_logic()
   if original_update_game_logic_func then
     original_update_game_logic_func() 

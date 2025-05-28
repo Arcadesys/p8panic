@@ -1,9 +1,12 @@
+--#globals controls_disabled cursors player_manager btn btnp max min add ipairs pairs attempt_capture place_piece printh CSTATE_MOVE_SELECT CSTATE_ROTATE_PLACE CSTATE_COOLDOWN original_update_game_logic_func
 
 local CSTATE_MOVE_SELECT = 0
 local CSTATE_ROTATE_PLACE = 1
 local CSTATE_COOLDOWN = 2
 
 function update_controls()
+  if controls_disabled then return end -- Add this line to disable controls
+
   local cursor_speed = 2        -- pixels per frame; adjust as needed
   local rotation_speed = 0.02   -- rotation amount per frame; adjust
 
