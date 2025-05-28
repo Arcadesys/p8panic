@@ -253,15 +253,22 @@ function score_attackers()
                                                      defender_corners[k].x, defender_corners[k].y)
             if t and t >= 0 and t <= LASER_LEN then
               defender.hits = (defender.hits or 0) + 1
-              if defender.hits == 2 then
-                if attacker.owner and scores[attacker.owner] then scores[attacker.owner] += 1 end
-                defender.state = "successful"
-              elseif defender.hits == 3 then
-                if attacker.owner and scores[attacker.owner] then scores[attacker.owner] += 1 end
-                defender.state = "overcharged"
-              end
               defender.targeting_attackers = defender.targeting_attackers or {}
               add(defender.targeting_attackers, attacker)
+              -- Only attackers score, not defenders, for 2+ hits
+              if defender.hits == 2 then
+                defender.state = "unsuccessful"
+                if attacker.owner and defender.owner and attacker.owner ~= defender.owner then
+                  scores[attacker.owner] += 1
+                end
+              elseif defender.hits == 3 then
+                defender.state = "overcharged"
+                if attacker.owner and defender.owner and attacker.owner ~= defender.owner then
+                  scores[attacker.owner] += 1
+                end
+              elseif defender.hits == 1 then
+                defender.state = "neutral"
+              end
               break
             end
           end
