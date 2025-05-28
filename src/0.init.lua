@@ -1,7 +1,14 @@
+---@diagnostic disable: undefined-global
 -- p8panic - A game of tactical geometry
+
+-- Initialize core global tables BEFORE includes that might use them
+player_manager = {} -- Must be defined before 4.player.lua is included
+pieces = {}         -- Must be defined before 5.piece.lua (if it uses global pieces during load)
+
 --#include src/4.player.lua
 --#include src/5.piece.lua
-
+--#globals player_manager create_piece pieces LASER_LEN ray_segment_intersect
+--#globals player_manager,create_piece,LASER_LEN,pieces,ray_segment_intersect
 -------------------------------------------
 -- Helpers & Global Constants/Variables --
 -------------------------------------------
@@ -22,7 +29,6 @@ function point_in_polygon(px, py, vertices)
 end
 
 -- Global game state variables
-pieces = {}
 -- scores = {0, 0, 0, 0}   -- Scores for up to 4 players -- Handled by player_manager
 LASER_LEN = 60          -- Maximum laser beam length
 
@@ -69,7 +75,7 @@ function init_cursors(num_players)
   end
 
   for i, sp in ipairs(spawn_points) do
-    local p_obj = _G.player_manager.get_player(i) -- Use _G.player_manager
+    local p_obj = player_manager.get_player(i)
     cursors[i] = {
       x = sp.x, y = sp.y,
       spawn_x = sp.x, spawn_y = sp.y,
@@ -83,42 +89,6 @@ function init_cursors(num_players)
   end
 end
 
--- init_cursors(4) -- Called by player_manager.init_players
-_G.player_manager.init_players(4) -- This will also call init_cursors. Use _G.player_manager
-
-------------------------------------------
--- Piece Drawing & Helper Functions        --
--------------------------------------------
--- function get_piece_draw_vertices(piece) -- Moved to Piece class in 5.piece.lua
---   local o = piece.orientation
---   local cx = piece.position.x
---   local cy = piece.position.y
---   local local_corners = {}
-
---   if piece.type == "attacker" then
---     local h = attacker_triangle_height
---     local b = attacker_triangle_base
---     add(local_corners, {x = h/2, y = 0})      -- Apex
---     add(local_corners, {x = -h/2, y = b/2})     -- Base corner 1
---     add(local_corners, {x = -h/2, y = -b/2})    -- Base corner 2
---   else
---     local w, h = defender_width, defender_height
---     local hw = w / 2
---     local hh = h / 2
---     add(local_corners, {x = -hw, y = -hh})
---     add(local_corners, {x = hw, y = -hh})
---     add(local_corners, {x = hw, y = hh})
---     add(local_corners, {x = -hw, y = hh})
---   end
-
---   local world_corners = {}
---   for lc in all(local_corners) do
---     local rotated_x = lc.x * cos(o) - lc.y * sin(o)
---     local rotated_y = lc.x * sin(o) + lc.y * cos(o)
---     add(world_corners, {x = cx + rotated_x, y = cy + rotated_y})
---   end
---   return world_corners
--- end
 
 -- Ray-segment intersection helper.
 function ray_segment_intersect(ray_ox, ray_oy, ray_dx, ray_dy,
@@ -144,7 +114,7 @@ function legal_placement(piece_params)
   local bw, bh = 128, 128
 
   -- Create a temporary piece object to use its get_draw_vertices method
-  local temp_piece_obj = _G.create_piece(piece_params) -- Use _G.create_piece
+  local temp_piece_obj = create_piece(piece_params)
   if not temp_piece_obj then return false end -- Failed to create for some reason
 
   local function vec_sub(a, b) return {x = a.x - b.x, y = a.y - b.y} end
@@ -204,7 +174,7 @@ function legal_placement(piece_params)
     local dir_x = cos(piece_params.orientation)
     local dir_y = sin(piece_params.orientation)
     local laser_hits_defender = false
-    for _, ep_obj in ipairs(pieces) do -- ep_obj is an object
+    for _, ep_obj in ipairs(pieces) do 
       if ep_obj.type == "defender" then
         local def_corners = ep_obj:get_draw_vertices() -- Use method
         for j = 1, #def_corners do
@@ -213,7 +183,7 @@ function legal_placement(piece_params)
             apex.x, apex.y, dir_x, dir_y,
             def_corners[j].x, def_corners[j].y, def_corners[k].x, def_corners[k].y
           )
-          if t and t >= 0 and t <= LASER_LEN then -- Use direct global
+          if t and t >= 0 and t <= LASER_LEN then 
             laser_hits_defender = true
             break
           end
@@ -232,7 +202,7 @@ function place_piece(piece_params, player_obj)
   if legal_placement(piece_params) then
     local piece_color_to_place = player_obj:get_color()
     if player_obj:use_piece_from_stash(piece_color_to_place) then
-      local new_piece_obj = _G.create_piece(piece_params) -- Use _G.create_piece
+      local new_piece_obj = create_piece(piece_params)
       if new_piece_obj then
         -- Defender specific properties are set in Defender:new now
         -- if new_piece_obj.type == "defender" then
@@ -272,27 +242,29 @@ function score_attackers()
           local defender_corners = defender_obj:get_draw_vertices()
           if not defender_corners or #defender_corners == 0 then goto next_defender end -- luacheck: ignore
           for j = 1, #defender_corners do
-            local k = (j % #defender_corners) + 1
-            local ix, iy, t = ray_segment_intersect(apex.x, apex.y, dir_x, dir_y, -- Use direct call
+            local k_idx = (j % #defender_corners) + 1
+            local ix, iy, t = ray_segment_intersect(apex.x, apex.y, dir_x, dir_y, 
                                                      defender_corners[j].x, defender_corners[j].y,
-                                                     defender_corners[k].x, defender_corners[k].y)
-            if t and t >= 0 and t <= LASER_LEN then -- Use direct global
+                                                     defender_corners[k_idx].x, defender_corners[k_idx].y)
+            if t and t >= 0 and t <= LASER_LEN then 
               defender_obj.hits = (defender_obj.hits or 0) + 1
-              defender_obj.targeting_attackers = defender_obj.targeting_attackers or {}
+              defender_obj.targeting_attackers = defender_obj.targeting_attackers or {} -- Ensure initialization
               add(defender_obj.targeting_attackers, attacker_obj)
               
-              local attacker_player = _G.player_manager.get_player(attacker_obj.owner_id) -- Use _G.player_manager
-              local defender_player = _G.player_manager.get_player(defender_obj.owner_id) -- Use _G.player_manager
+              local attacker_player = player_manager.get_player(attacker_obj.owner_id)
+              local defender_player = player_manager.get_player(defender_obj.owner_id)
 
               if defender_obj.hits == 2 then
                 defender_obj.state = "unsuccessful"
                 if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
-                  attacker_player:add_score(1)
+                  attacker_player:add_score(1) -- Use player object to add score
+                  attacker_obj.is_currently_scoring = true -- Mark attacker as scoring
                 end
               elseif defender_obj.hits == 3 then
                 defender_obj.state = "overcharged"
                 if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
-                  attacker_player:add_score(1)
+                  attacker_player:add_score(1) -- Use player object to add score
+                  attacker_obj.is_currently_scoring = true -- Mark attacker as scoring
                   local captured_piece_color = defender_player:get_color()
                   attacker_player:add_captured_piece(captured_piece_color)
                   defender_obj.captured = true 
@@ -369,7 +341,7 @@ function update_controls()
   local cursor_speed = 2
   local rotation_speed = 0.02
   for i, cur in ipairs(cursors) do
-    local current_player_obj = _G.player_manager.get_player(i) -- Use _G.player_manager
+    local current_player_obj = player_manager.get_player(i)
     if not current_player_obj then goto next_cursor end -- Skip if player object not found
 
     -- Pico-8 controller index is (i-1)
@@ -464,6 +436,8 @@ function update_game_logic()
       p_item.hits = 0
       p_item.targeting_attackers = {}
       p_item.state = "neutral"
+    elseif p_item.type == "attacker" then
+      p_item.is_currently_scoring = false -- Reset scoring flag for attackers
     end
   end
   score_attackers()
@@ -487,7 +461,7 @@ function _draw()
   
   -- Draw cursors and ghost pieces
   for i, cur in ipairs(cursors) do
-    local current_player_obj = _G.player_manager.get_player(i) -- Get player for ghost color. Use _G.player_manager
+    local current_player_obj = player_manager.get_player(i)
     if cur.control_state == 0 or cur.control_state == 2 then -- Standard cursor shapes
       local cursor_draw_color = (current_player_obj and current_player_obj:get_ghost_color()) or cur.pending_color
       if cur.pending_type == "defender" then
@@ -509,7 +483,7 @@ function _draw()
         position = { x = cur.x + 4, y = cur.y + 4 },
         orientation = cur.pending_orientation
       }
-      local ghost_piece_obj = _G.create_piece(ghost_params) -- Use _G.create_piece
+      local ghost_piece_obj = create_piece(ghost_params)
       if ghost_piece_obj then
         -- We need a way for the ghost piece to draw with the cursor's pending_color
         -- This will be handled by modifying Piece:draw or Piece:get_color in 5.piece.lua
@@ -524,8 +498,8 @@ function _draw()
   local font_width = 4
   local font_height = 5
 
-  for i=1, _G.player_manager.get_player_count() do -- Use _G.player_manager
-    local p_obj = _G.player_manager.get_player(i) -- Use _G.player_manager
+  for i=1, player_manager.get_player_count() do
+    local p_obj = player_manager.get_player(i)
     if p_obj then
       local score_txt = p_obj:get_score() .. "" -- Pico-8 tostring
       local p_color = p_obj:get_color()
