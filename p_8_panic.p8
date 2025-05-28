@@ -664,6 +664,7 @@ function Piece:new(o)
   o.orientation = o.orientation or 0
   -- o.owner_id should be provided
   -- o.type should be set by subclasses or factory
+  -- o.color is now passed in params for placed pieces
   setmetatable(o, self) -- Set metatable after o is populated
   return o
 end
@@ -671,6 +672,10 @@ end
 function Piece:get_color()
   if self.is_ghost and self.ghost_color_override then
     return self.ghost_color_override
+  end
+  -- If a color is explicitly set on the piece (e.g., when placed from stash), use it.
+  if self.color then
+    return self.color
   end
   if self.owner_id then
     local owner_player = player_manager.get_player(self.owner_id)
@@ -841,12 +846,12 @@ end
 -- Factory function to create pieces
 -- Global `pieces` table will be needed for laser interactions in Attacker:draw
 -- It might be passed to Attacker:draw or accessed globally if available.
-function create_piece(params) -- `params` should include owner_id, type, position, orientation
+function create_piece(params) -- `params` should include owner_id, type, position, orientation, color
   local piece_obj
   if params.type == "attacker" then
-    piece_obj = Attacker:new(params)
+    piece_obj = Attacker:new(params) -- Pass all params, including color
   elseif params.type == "defender" then
-    piece_obj = Defender:new(params)
+    piece_obj = Defender:new(params) -- Pass all params, including color
   else
     printh("Error: Unknown piece type: " .. (params.type or "nil"))
     return nil
@@ -978,25 +983,36 @@ end
 
 function place_piece(piece_params, player_obj)
   if legal_placement(piece_params) then
-    local piece_color_to_place = player_obj:get_color()
+    local piece_color_to_place = piece_params.color -- Strictly use the color from params
+
+    if piece_color_to_place == nil then
+      printh("PLACE ERROR: piece_params.color is NIL!")
+      return false -- Fail if no color specified by controls
+    end
     
+    printh("Place attempt: P"..player_obj.id.." color: "..tostring(piece_color_to_place).." type: "..piece_params.type)
+
     if player_obj:use_piece_from_stash(piece_color_to_place) then
-      local new_piece_obj = create_piece(piece_params)
+      -- piece_params already contains the .color, create_piece should use it
+      local new_piece_obj = create_piece(piece_params) 
       if new_piece_obj then
         add(pieces, new_piece_obj)
         score_pieces() -- Recalculate scores after placing a piece
+        printh("Placed piece with color: " .. tostring(new_piece_obj:get_color()))
         return true
       else
-        printh("Failed to create piece object.")
+        printh("Failed to create piece object after stash use.")
         player_obj:add_captured_piece(piece_color_to_place) -- Return piece to stash
         return false
       end
     else
-      printh("P" .. player_obj.id .. " has no more of their own pieces.")
+      printh("P" .. player_obj.id .. " has no piece of color " .. tostring(piece_color_to_place) .. " in stash.")
       return false
     end
+  else
+    printh("Placement not legal for P"..player_obj.id)
+    return false
   end
-  return false
 end
 -->8
 -- Converted Controls Module for Multi-Cursor Support
@@ -1091,7 +1107,8 @@ function update_controls()
           owner_id = i, -- Use player index as owner_id
           type = cur.pending_type,
           position = { x = cur.x + 4, y = cur.y + 4 },
-          orientation = cur.pending_orientation
+          orientation = cur.pending_orientation,
+          color = cur.pending_color -- Add the selected color to piece_params
         }
         if place_piece(piece_params, current_player_obj) then
           cur.control_state = CSTATE_COOLDOWN

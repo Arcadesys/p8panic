@@ -90,7 +90,8 @@ function update_controls()
           owner_id = i, -- Use player index as owner_id
           type = cur.pending_type,
           position = { x = cur.x + 4, y = cur.y + 4 },
-          orientation = cur.pending_orientation
+          orientation = cur.pending_orientation,
+          color = cur.pending_color -- Add the selected color to piece_params
         }
         if place_piece(piece_params, current_player_obj) then
           cur.control_state = CSTATE_COOLDOWN

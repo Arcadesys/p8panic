@@ -114,23 +114,34 @@ end
 
 function place_piece(piece_params, player_obj)
   if legal_placement(piece_params) then
-    local piece_color_to_place = player_obj:get_color()
+    local piece_color_to_place = piece_params.color -- Strictly use the color from params
+
+    if piece_color_to_place == nil then
+      printh("PLACE ERROR: piece_params.color is NIL!")
+      return false -- Fail if no color specified by controls
+    end
     
+    printh("Place attempt: P"..player_obj.id.." color: "..tostring(piece_color_to_place).." type: "..piece_params.type)
+
     if player_obj:use_piece_from_stash(piece_color_to_place) then
-      local new_piece_obj = create_piece(piece_params)
+      -- piece_params already contains the .color, create_piece should use it
+      local new_piece_obj = create_piece(piece_params) 
       if new_piece_obj then
         add(pieces, new_piece_obj)
         score_pieces() -- Recalculate scores after placing a piece
+        printh("Placed piece with color: " .. tostring(new_piece_obj:get_color()))
         return true
       else
-        printh("Failed to create piece object.")
+        printh("Failed to create piece object after stash use.")
         player_obj:add_captured_piece(piece_color_to_place) -- Return piece to stash
         return false
       end
     else
-      printh("P" .. player_obj.id .. " has no more of their own pieces.")
+      printh("P" .. player_obj.id .. " has no piece of color " .. tostring(piece_color_to_place) .. " in stash.")
       return false
     end
+  else
+    printh("Placement not legal for P"..player_obj.id)
+    return false
   end
-  return false
 end

@@ -32,6 +32,7 @@ function Piece:new(o)
   o.orientation = o.orientation or 0
   -- o.owner_id should be provided
   -- o.type should be set by subclasses or factory
+  -- o.color is now passed in params for placed pieces
   setmetatable(o, self) -- Set metatable after o is populated
   return o
 end
@@ -39,6 +40,10 @@ end
 function Piece:get_color()
   if self.is_ghost and self.ghost_color_override then
     return self.ghost_color_override
+  end
+  -- If a color is explicitly set on the piece (e.g., when placed from stash), use it.
+  if self.color then
+    return self.color
   end
   if self.owner_id then
     local owner_player = player_manager.get_player(self.owner_id)
@@ -209,12 +214,12 @@ end
 -- Factory function to create pieces
 -- Global `pieces` table will be needed for laser interactions in Attacker:draw
 -- It might be passed to Attacker:draw or accessed globally if available.
-function create_piece(params) -- `params` should include owner_id, type, position, orientation
+function create_piece(params) -- `params` should include owner_id, type, position, orientation, color
   local piece_obj
   if params.type == "attacker" then
-    piece_obj = Attacker:new(params)
+    piece_obj = Attacker:new(params) -- Pass all params, including color
   elseif params.type == "defender" then
-    piece_obj = Defender:new(params)
+    piece_obj = Defender:new(params) -- Pass all params, including color
   else
     printh("Error: Unknown piece type: " .. (params.type or "nil"))
     return nil
