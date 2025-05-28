@@ -380,6 +380,8 @@ function _draw()
         local dir_x = cos(p.orientation)
         local dir_y = sin(p.orientation)
         local min_t_intersect = LASER_LEN
+        local laser_color = body_color -- default: owner's color
+        -- Check if this attacker's laser hits an overcharged or successful defender
         for _, ep in ipairs(pieces) do
           if ep and ep ~= p and ep.type == "defender" then
             local def_verts = get_piece_draw_vertices(ep)
@@ -392,6 +394,12 @@ function _draw()
                 )
                 if t and t >= 0 and t < min_t_intersect then
                   min_t_intersect = t
+                  -- Set laser color based on defender state
+                  if ep.state == "overcharged" then
+                    laser_color = 8 -- red/pink
+                  elseif ep.state == "successful" then
+                    laser_color = 11 -- green
+                  end
                 end
               end
             end
@@ -399,27 +407,31 @@ function _draw()
         end
         local effective_len = min(min_t_intersect, LASER_LEN)
         if effective_len >= 8 then
-          local segments = 16
-          local anim_speed = 4
-          local phase = (time() * anim_speed) % 2
+          local segments = 16         -- total dash parts (dashes+gaps)
+          local dash_ratio = 0.6        -- proportion of each segment that is drawn
+          local segment_length = effective_len / segments
+          local anim_speed = 30
+          local offset = (time() * anim_speed) % segment_length
           for s = 0, segments - 1 do
-            if ((s + phase) % 2) < 1 then
-              local x1 = apex.x + dir_x * effective_len * (s / segments)
-              local y1 = apex.y + dir_y * effective_len * (s / segments)
-              local x2 = apex.x + dir_x * effective_len * ((s + 1) / segments)
-              local y2 = apex.y + dir_y * effective_len * ((s + 1) / segments)
-              line(x1, y1, x2, y2, p.owner or 7)
-            end
+            local seg_start = s * segment_length + offset
+            local seg_end = seg_start + segment_length * dash_ratio
+            if seg_end > effective_len then seg_end = effective_len end
+            local x1 = apex.x + dir_x * seg_start
+            local y1 = apex.y + dir_y * seg_start
+            local x2 = apex.x + dir_x * seg_end
+            local y2 = apex.y + dir_y * seg_end
+            line(x1, y1, x2, y2, laser_color)
           end
         elseif effective_len > 0 then
           local ex = apex.x + dir_x * effective_len
           local ey = apex.y + dir_y * effective_len
-          line(apex.x, apex.y, ex, ey, p.owner or 7)
+          line(apex.x, apex.y, ex, ey, laser_color)
         end
         if p.pending_type == "capture" then
           circ(p.position.x, p.position.y, attacker_triangle_height / 2 + 2, 13)
         end
       else
+        -- Defender color always player's color
         line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, body_color)
         line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, body_color)
         line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, body_color)
@@ -660,108 +672,90 @@ function score_attackers()
   end
 end
 -->8
--- /Users/arcades/Code/p8panic/src/3.controls.lua
--- Handles player input and updates control-related game state.
+-- Converted Controls Module for Multi-Cursor Support
+-- Handles player input and updates control-related game state for each cursor.
 
--- luacheck: globals btn btnp cursor_x cursor_y control_state pending_type pending_color pending_orientation current_player pieces
--- luacheck: globals place_piece LASER_LEN player get_piece_draw_vertices ray_segment_intersect -- Add other globals if needed by controls
-
--- Constants for control states (optional, but can make code clearer)
--- local CSTATE_MOVE_SELECT = 0
--- local CSTATE_ROTATE_PLACE = 1
--- local CSTATE_COOLDOWN = 2 -- Example for a post-action cooldown
+-- Constants for control states (optional)
+local CSTATE_MOVE_SELECT = 0
+local CSTATE_ROTATE_PLACE = 1
+local CSTATE_COOLDOWN = 2
 
 function update_controls()
-  -- Cursor movement speed
-  local cursor_speed = 2 -- pixels per frame; adjust as needed
-  local rotation_speed = 0.02 -- rotation amount per frame; adjust
+  local cursor_speed = 2        -- pixels per frame; adjust as needed
+  local rotation_speed = 0.02   -- rotation amount per frame; adjust
 
-  -- --- Player Input Handling ---
-  -- This example assumes 'current_player' (0-indexed) determines which player's input is read.
-  -- You might have a more complex player turn system.
+  -- Iterate through each player's cursor in the global 'cursors' table.
+  for i, cur in ipairs(cursors) do
+    -- Pico-8 controller index is (i - 1).
+    if cur.control_state == CSTATE_MOVE_SELECT then
+      -- Continuous movement with the d-pad.
+      if btn(⬅️, i - 1) then cur.x = max(0, cur.x - cursor_speed) end
+      if btn(➡️, i - 1) then cur.x = min(cur.x + cursor_speed, 128 - 8) end
+      if btn(⬆️, i - 1) then cur.y = max(0, cur.y - cursor_speed) end
+      if btn(⬇️, i - 1) then cur.y = min(cur.y + cursor_speed, 128 - 8) end
 
-  -- Movement State (control_state == 0)
-  if control_state == 0 then
-    -- Cursor Movement (D-pad)
-    if btn(⬅️, current_player) then cursor_x -= cursor_speed end -- Using btn for continuous movement
-    if btn(➡️, current_player) then cursor_x += cursor_speed end
-    if btn(⬆️, current_player) then cursor_y -= cursor_speed end
-    if btn(⬇️, current_player) then cursor_y += cursor_speed end
-
-    -- Clamp cursor to screen boundaries (assuming 8x8 cursor, 128x128 screen)
-    cursor_x = max(0, min(cursor_x, 128 - 8))
-    cursor_y = max(0, min(cursor_y, 128 - 8))
-
-    -- Cycle piece/action type (e.g., Button 🅾️ - O)
-    if btnp(🅾️, current_player) then
-      if pending_type == "defender" then
-        pending_type = "attacker"
-      elseif pending_type == "attacker" then
-        pending_type = "capture" -- Or cycle back to defender if no capture mode
-      elseif pending_type == "capture" then
-        pending_type = "defender"
+      -- Cycle piece/action type (using Button O)
+      if btnp(🅾️, i - 1) then
+        if cur.pending_type == "defender" then
+          cur.pending_type = "attacker"
+        elseif cur.pending_type == "attacker" then
+          cur.pending_type = "capture"
+        elseif cur.pending_type == "capture" then
+          cur.pending_type = "defender"
+        end
       end
-      -- Potentially update pending_color based on current_player if not already set
-      -- pending_color = player.colors[current_player+1] or 7 -- Assuming player.colors is 1-indexed
-    end
 
-    -- Initiate placement/rotation (e.g., Button ❎ - X)
-    if btnp(❎, current_player) then
-      if pending_type == "capture" then
-        -- Handle capture logic here
-        -- e.g., find piece at cursor_x, cursor_y and attempt to capture it
-        -- For now, let's assume capture mode switches back or does something else
-        -- print("Capture attempt at: "..cursor_x..","..cursor_y)
-      else
-        -- Switch to rotation/placement state for defender or attacker
-        control_state = 1
-        pending_orientation = 0 -- Reset orientation when starting placement
-        -- Set pending_color based on current_player if you have player colors
-        -- pending_color = player.colors[current_player+1] or 7 -- Assuming player.colors is 1-indexed
+      -- Initiate placement/rotation with Button X.
+      if btnp(❎, i - 1) then
+        if cur.pending_type == "capture" then
+          -- (Capture logic placeholder)
+        else
+          cur.control_state = CSTATE_ROTATE_PLACE
+          cur.pending_orientation = 0 -- Reset orientation when starting placement
+        end
+      end
+
+    elseif cur.control_state == CSTATE_ROTATE_PLACE then
+      -- Rotate pending piece using d-pad.
+      if btn(⬅️, i - 1) then
+        cur.pending_orientation = cur.pending_orientation - rotation_speed
+        if cur.pending_orientation < 0 then cur.pending_orientation = cur.pending_orientation + 1 end
+      end
+      if btn(➡️, i - 1) then
+        cur.pending_orientation = cur.pending_orientation + rotation_speed
+        if cur.pending_orientation >= 1 then cur.pending_orientation = cur.pending_orientation - 1 end
+      end
+
+      -- Confirm placement with Button X.
+      if btnp(❎, i - 1) then
+        local piece_to_place = {
+          owner = (player and player.colors and player.colors[i]) or 7,
+          type = cur.pending_type,
+          position = { x = cur.x + 4, y = cur.y + 4 },
+          orientation = cur.pending_orientation
+        }
+        place_piece(piece_to_place)
+        cur.control_state = CSTATE_COOLDOWN
+        cur.return_cooldown = 6  -- 6-frame cooldown after placement
+      end
+
+      -- Cancel placement with Button O.
+      if btnp(🅾️, i - 1) then
+        cur.control_state = CSTATE_MOVE_SELECT
+      end
+
+    elseif cur.control_state == CSTATE_COOLDOWN then
+      -- Decrement cooldown timer and snap cursor back to spawn when done.
+      cur.return_cooldown = cur.return_cooldown - 1
+      if cur.return_cooldown <= 0 then
+        cur.x = cur.spawn_x
+        cur.y = cur.spawn_y
+        cur.control_state = CSTATE_MOVE_SELECT
+        cur.pending_orientation = 0
+        cur.pending_type = "defender"
+        cur.pending_color = (player and player.ghost_colors and player.ghost_colors[i]) or 7
       end
     end
-
-  -- Rotation/Placement State (control_state == 1)
-  elseif control_state == 1 then
-    -- Rotate pending piece (e.g., D-pad left/right)
-    if btn(⬅️, current_player) then -- Using btn for continuous rotation if held
-      pending_orientation -= rotation_speed
-      if pending_orientation < 0 then pending_orientation += 1 end
-    end
-    if btn(➡️, current_player) then
-      pending_orientation += rotation_speed
-      if pending_orientation >= 1 then pending_orientation -= 1 end
-    end
-
-    -- Confirm placement (e.g., Button ❎ - X)
-    if btnp(❎, current_player) then
-      local piece_to_place = {
-        owner = pending_color, -- Should be set to current player's color
-        type = pending_type,
-        position = { x = cursor_x + 4, y = cursor_y + 4 }, -- Center of the 8x8 cursor
-        orientation = pending_orientation
-      }
-      -- place_piece() is defined in 1.placement.lua and will handle legality checks
-      place_piece(piece_to_place)
-      
-      control_state = 0 -- Return to movement/selection mode
-      -- Optionally, switch to a cooldown state: control_state = CSTATE_COOLDOWN
-      -- Optionally, switch player: current_player = (current_player + 1) % num_players
-    end
-
-    -- Cancel placement (e.g., Button 🅾️ - O)
-    if btnp(🅾️, current_player) then
-      control_state = 0 -- Return to movement/selection mode
-    end
-  
-  -- Cooldown State (optional, example: control_state == 2)
-  -- elseif control_state == CSTATE_COOLDOWN then
-    -- Handle cooldown timer, then switch back to CSTATE_MOVE_SELECT
-    -- cooldown_timer -= 1
-    -- if cooldown_timer <= 0 then
-    --   control_state = CSTATE_MOVE_SELECT
-    --   -- Potentially switch player here if turns are involved
-    -- end
   end
 end
 __gfx__

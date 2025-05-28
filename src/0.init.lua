@@ -377,6 +377,8 @@ function _draw()
         local dir_x = cos(p.orientation)
         local dir_y = sin(p.orientation)
         local min_t_intersect = LASER_LEN
+        local laser_color = body_color -- default: owner's color
+        -- Check if this attacker's laser hits an overcharged or successful defender
         for _, ep in ipairs(pieces) do
           if ep and ep ~= p and ep.type == "defender" then
             local def_verts = get_piece_draw_vertices(ep)
@@ -389,6 +391,12 @@ function _draw()
                 )
                 if t and t >= 0 and t < min_t_intersect then
                   min_t_intersect = t
+                  -- Set laser color based on defender state
+                  if ep.state == "overcharged" then
+                    laser_color = 8 -- red/pink
+                  elseif ep.state == "successful" then
+                    laser_color = 11 -- green
+                  end
                 end
               end
             end
@@ -396,27 +404,31 @@ function _draw()
         end
         local effective_len = min(min_t_intersect, LASER_LEN)
         if effective_len >= 8 then
-          local segments = 16
-          local anim_speed = 4
-          local phase = (time() * anim_speed) % 2
+          local segments = 16         -- total dash parts (dashes+gaps)
+          local dash_ratio = 0.6        -- proportion of each segment that is drawn
+          local segment_length = effective_len / segments
+          local anim_speed = 30
+          local offset = (time() * anim_speed) % segment_length
           for s = 0, segments - 1 do
-            if ((s + phase) % 2) < 1 then
-              local x1 = apex.x + dir_x * effective_len * (s / segments)
-              local y1 = apex.y + dir_y * effective_len * (s / segments)
-              local x2 = apex.x + dir_x * effective_len * ((s + 1) / segments)
-              local y2 = apex.y + dir_y * effective_len * ((s + 1) / segments)
-              line(x1, y1, x2, y2, p.owner or 7)
-            end
+            local seg_start = s * segment_length + offset
+            local seg_end = seg_start + segment_length * dash_ratio
+            if seg_end > effective_len then seg_end = effective_len end
+            local x1 = apex.x + dir_x * seg_start
+            local y1 = apex.y + dir_y * seg_start
+            local x2 = apex.x + dir_x * seg_end
+            local y2 = apex.y + dir_y * seg_end
+            line(x1, y1, x2, y2, laser_color)
           end
         elseif effective_len > 0 then
           local ex = apex.x + dir_x * effective_len
           local ey = apex.y + dir_y * effective_len
-          line(apex.x, apex.y, ex, ey, p.owner or 7)
+          line(apex.x, apex.y, ex, ey, laser_color)
         end
         if p.pending_type == "capture" then
           circ(p.position.x, p.position.y, attacker_triangle_height / 2 + 2, 13)
         end
       else
+        -- Defender color always player's color
         line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, body_color)
         line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, body_color)
         line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, body_color)
