@@ -538,128 +538,140 @@ function _draw()
   end
 end
 -->8
--- SECTION 4: Placement Module
-function legal_placement(piece) -- Made global by removing 'local'
-  -- Dimensions are now sourced from global vars used by get_piece_draw_vertices
-  local bw,bh=128,128 
-  local function vec_sub(a,b) return {x=a.x-b.x, y=a.y-b.y} end
-  local function vec_dot(a,b) return a.x*b.x+a.y*b.y end
+-- src/1.placement.lua
+-- Placement Module
+--#globals create_piece pieces ray_segment_intersect LASER_LEN player_manager
+--#globals cos sin max min sqrt abs add all ipairs
+--#globals N_PLAYERS -- Though not directly used, it's part of the context of 0.init
 
-  local function project(vs,ax)
-    local mn,mx=vec_dot(vs[1],ax),vec_dot(vs[1],ax)
-    for i=2,#vs do
-      local pr=vec_dot(vs[i],ax)
-      mn, mx = min(mn,pr), max(mx,pr)
+-- Cached math functions (assuming they are available globally from 0.init.lua or PICO-8 defaults)
+-- local cos, sin = _G.cos, _G.sin -- Or just use them directly
+-- local max, min = _G.max, _G.min
+-- local sqrt, abs = _G.sqrt, _G.abs
+
+function legal_placement(piece_params)
+  local bw, bh = 128, 128
+  local temp_piece_obj = create_piece(piece_params)
+  if not temp_piece_obj then return false end
+
+  local function vec_sub(a, b) return {x = a.x - b.x, y = a.y - b.y} end
+  local function vec_dot(a, b) return a.x * b.x + a.y * b.y end
+  local function project(vs, ax)
+    if not vs or #vs == 0 then return 0,0 end -- Guard against empty vertices
+    local mn, mx = vec_dot(vs[1], ax), vec_dot(vs[1], ax)
+    for i = 2, #vs do
+      local pr = vec_dot(vs[i], ax)
+      mn, mx = min(mn, pr), max(mx, pr)
     end
-    return mn,mx
+    return mn, mx
   end
-
   local function get_axes(vs)
-    local ua={}
-    for i=1,#vs do
-      local p1=vs[i]; local p2=vs[(i%#vs)+1]
-      local e=vec_sub(p2,p1); local n={x=-e.y,y=e.x}
-      local l=sqrt(n.x^2+n.y^2)
-      if l>0.0001 then n.x,n.y=n.x/l,n.y/l
-        local uniq=true
-        for ea in all(ua) do if abs(vec_dot(ea,n))>0.999 then uniq=false end end
-        if uniq then add(ua,n) end
+    local ua = {}
+    if not vs or #vs < 2 then return ua end -- Need at least 2 vertices for an edge
+    for i = 1, #vs do
+      local p1 = vs[i]
+      local p2 = vs[(i % #vs) + 1]
+      local e = vec_sub(p2, p1)
+      local n = {x = -e.y, y = e.x}
+      local l = sqrt(n.x^2 + n.y^2)
+      if l > 0.0001 then
+        n.x, n.y = n.x / l, n.y / l
+        local uniq = true
+        for ea in all(ua) do if abs(vec_dot(ea, n)) > 0.999 then uniq = false; break end end
+        if uniq then add(ua, n) end
       end
     end
     return ua
   end
 
-  -- 1. bounds
-  local corners=get_piece_draw_vertices(piece) -- Use global helper
+  local corners = temp_piece_obj:get_draw_vertices()
+  if not corners or #corners == 0 then return false end -- No vertices to check
   for c in all(corners) do
-    if c.x<0 or c.x>bw or c.y<0 or c.y>bh then return false end
+    if c.x < 0 or c.x > bw or c.y < 0 or c.y > bh then return false end
   end
 
-  -- 2. collision
-  local piece_corners = get_piece_draw_vertices(piece) -- Use global helper
-  if pieces then
-    for _, ep in ipairs(pieces) do -- Use ipairs for dense, 1-indexed array
-      local ep_corners = get_piece_draw_vertices(ep) -- Use global helper
-      
-      local combined_axes = {}
-      for ax_piece in all(get_axes(piece_corners)) do add(combined_axes, ax_piece) end
-      for ax_ep in all(get_axes(ep_corners)) do add(combined_axes, ax_ep) end
+  for _, ep_obj in ipairs(pieces) do
+    local ep_corners = ep_obj:get_draw_vertices()
+    if not ep_corners or #ep_corners == 0 then goto next_ep_check end -- Skip if existing piece has no vertices
 
-      local collision_with_ep = true -- Assume collision until a separating axis is found
-      if #combined_axes == 0 and #piece_corners > 0 and #ep_corners > 0 then
-        -- This case can happen if polygons are degenerate (e.g. a line)
-        -- For simplicity, assume non-degenerate or handle as collision if unsure.
-      end
-
-      for ax in all(combined_axes) do
-        local min1, max1 = project(piece_corners, ax)
-        local min2, max2 = project(ep_corners, ax)
-        if max1 < min2 or max2 < min1 then -- Separating axis found
-          collision_with_ep = false -- No collision between piece and ep
-          break -- Stop checking axes for this pair
+    local combined_axes = {}
+    for ax_piece in all(get_axes(corners)) do add(combined_axes, ax_piece) end
+    for ax_ep in all(get_axes(ep_corners)) do add(combined_axes, ax_ep) end
+    
+    if #combined_axes == 0 then -- Potentially both are lines or points
+        local min_x1, max_x1, min_y1, max_y1 = bw, 0, bh, 0
+        for c in all(corners) do min_x1=min(min_x1,c.x) max_x1=max(max_x1,c.x) min_y1=min(min_y1,c.y) max_y1=max(max_y1,c.y) end
+        local min_x2, max_x2, min_y2, max_y2 = bw, 0, bh, 0
+        for c in all(ep_corners) do min_x2=min(min_x2,c.x) max_x2=max(max_x2,c.x) min_y2=min(min_y2,c.y) max_y2=max(max_y2,c.y) end
+        if not (max_x1 < min_x2 or max_x2 < min_x1 or max_y1 < min_y2 or max_y2 < min_y1) then
+            return false 
         end
-      end
+        goto next_ep_check 
+    end
 
-      if collision_with_ep then
-        -- All axes showed overlap for this pair (piece, ep), so they collide
-        return false -- Illegal placement
+    local collision_with_ep = true
+    for ax in all(combined_axes) do
+      local min1, max1 = project(corners, ax)
+      local min2, max2 = project(ep_corners, ax)
+      if max1 < min2 or max2 < min1 then
+        collision_with_ep = false
+        break
       end
     end
+    if collision_with_ep then return false end
+    ::next_ep_check::
   end
 
-  -- 3. attacker laser validation
-  if piece.type == "attacker" then
-    local apex = piece_corners[1] -- First vertex from get_rot for attacker is the apex
-    local dir_x = cos(piece.orientation)
-    local dir_y = sin(piece.orientation)
-    
+  if piece_params.type == "attacker" then
+    local apex = corners[1]
+    local dir_x = cos(piece_params.orientation)
+    local dir_y = sin(piece_params.orientation)
     local laser_hits_defender = false
-    if pieces then -- Ensure pieces table exists
-      for _, ep_val in ipairs(pieces) do -- Use ipairs for dense, 1-indexed array
-        if ep_val.type == "defender" then
-          local defender_corners = get_piece_draw_vertices(ep_val) -- Use global helper
-          for j = 1, #defender_corners do
-            local k = (j % #defender_corners) + 1
-            local x1, y1 = defender_corners[j].x, defender_corners[j].y
-            local x2, y2 = defender_corners[k].x, defender_corners[k].y
-            
-            local ix, iy, t = ray_segment_intersect(apex.x, apex.y, dir_x, dir_y, x1, y1, x2, y2)
-            
-            if t and t >= 0 and t <= LASER_LEN then -- Hit within laser range (t>=0 ensures it's forward)
-              laser_hits_defender = true
-              break -- Found a hit with this defender's segment
-            end
+    for _, ep_obj in ipairs(pieces) do
+      if ep_obj.type == "defender" then
+        local def_corners = ep_obj:get_draw_vertices()
+        if not def_corners or #def_corners == 0 then goto next_laser_target_check end
+        for j = 1, #def_corners do
+          local k = (j % #def_corners) + 1
+          local ix, iy, t = ray_segment_intersect(
+            apex.x, apex.y, dir_x, dir_y,
+            def_corners[j].x, def_corners[j].y, def_corners[k].x, def_corners[k].y
+          )
+          if t and t >= 0 and t <= LASER_LEN then
+            laser_hits_defender = true
+            break
           end
         end
-        if laser_hits_defender then
-          break -- Found a defender hit by the laser
-        end
       end
+      if laser_hits_defender then break end
+      ::next_laser_target_check::
     end
-    
-    if not laser_hits_defender then
-      return false -- Attacker laser must hit a defender
-    end
+    if not laser_hits_defender then return false end
   end
 
   return true
 end
 
-function place_piece(p) -- Made global by removing 'local'
-  -- p is the candidate piece data: { owner, type, position, orientation }
-  if legal_placement(p) then
-    -- Augment the piece data 'p' before adding it to the global 'pieces' list
-    if p.type == "defender" then
-      p.hits = 0
-      p.state = "neutral" -- "successful", "unsuccessful", "overcharged"
-      p.targeting_attackers = {} -- List of attacker pieces targeting this defender
-    elseif p.type == "attacker" then
-      -- Attackers don't have specific state like defenders in this mechanic
-      -- but could have properties like 'currently_hitting = {}' if needed later
+function place_piece(piece_params, player_obj)
+  if legal_placement(piece_params) then
+    local piece_color_to_place = player_obj:get_color()
+    
+    if player_obj:use_piece_from_stash(piece_color_to_place) then
+      local new_piece_obj = create_piece(piece_params)
+      if new_piece_obj then
+        add(pieces, new_piece_obj)
+        return true
+      else
+        printh("Failed to create piece object.")
+        player_obj:add_captured_piece(piece_color_to_place) -- Return piece to stash
+        return false
+      end
+    else
+      printh("P" .. player_obj.id .. " has no more of their own pieces.")
+      return false
     end
-    add(pieces, p) -- Add the (potentially augmented) piece 'p'
-    -- redraw_lasers() was a placeholder, actual laser drawing is in _draw
   end
+  return false
 end
 -->8
 --iterate through all attackers and score them
@@ -809,14 +821,9 @@ function update_controls()
   end
 end
 -->8
----@diagnostic disable: undefined-global
 -- src/4.player.lua
-
-local player_manager_module = {} -- Define as local module table
-player_manager_module.colors = {}
-player_manager_module.ghost_colors = {}
-player_manager_module.current_players = {}
-player_manager_module.max_players = 4
+--#globals player_manager
+--#globals player_manager
 
 local Player = {}
 Player.__index = Player -- For metatable inheritance
@@ -884,84 +891,104 @@ function Player:use_piece_from_stash(piece_color)
   return false
 end
 
--- Assign to the local module table instead of global player_manager directly
-player_manager_module.colors = {
+-- Module-level table to hold player-related functions and data
+player_manager = {}
+
+player_manager.colors = { -- Changed : to .
   [1] = 12, -- Player 1: Light Blue
   [2] = 8,  -- Player 2: Red (Pico-8 color 8 is red)
   [3] = 11, -- Player 3: Green
   [4] = 10  -- Player 4: Yellow
 }
 
-player_manager_module.ghost_colors = {
+-- Ghost/Cursor colors
+player_manager.ghost_colors = { -- Added ghost_colors table
   [1] = 1,  -- Player 1: Dark Blue (Pico-8 color 1)
   [2] = 9,  -- Player 2: Orange (Pico-8 color 9)
   [3] = 3,  -- Player 3: Dark Green (Pico-8 color 3)
   [4] = 4   -- Player 4: Brown (Pico-8 color 4)
 }
 
--- player_manager.max_players = 4 -- Already defined in local module table
--- player_manager.current_players = {} -- Already defined in local module table
+player_manager.max_players = 4
+player_manager.current_players = {} -- Table to hold active player instances
 
-function player_manager_module.init_players(num_players)
-  if num_players < 1 or num_players > player_manager_module.max_players then
-    printh("Error: Invalid number of players. Must be between 1 and " .. player_manager_module.max_players)
+-- Function to initialize players at the start of a game
+function player_manager.init_players(num_players)
+  if num_players < 1 or num_players > player_manager.max_players then
+    printh("Error: Invalid number of players. Must be between 1 and " .. player_manager.max_players)
     return
   end
 
-  player_manager_module.current_players = {} -- Reset current players
+  player_manager.current_players = {} -- Reset current players
 
   for i = 1, num_players do
-    local color = player_manager_module.colors[i]
-    local ghost_color = player_manager_module.ghost_colors[i]
+    local color = player_manager.colors[i]
+    local ghost_color = player_manager.ghost_colors[i] -- Get ghost_color
     if not color then
       printh("Warning: No color defined for player " .. i .. ". Defaulting to white (7).")
-      color = 7
+      color = 7 -- Default to white if color not found
     end
-    if not ghost_color then
+    if not ghost_color then -- Check for ghost_color
       printh("Warning: No ghost color defined for player " .. i .. ". Defaulting to dark blue (1).")
-      ghost_color = 1
+      ghost_color = 1 -- Default ghost_color
     end
-    player_manager_module.current_players[i] = Player:new(i, 0, color, ghost_color)
+    player_manager.current_players[i] = Player:new(i, 0, color, ghost_color) -- Pass ghost_color to constructor
   end
   
   printh("Initialized " .. num_players .. " players.")
 end
 
-function player_manager_module.get_player(player_id)
-  return player_manager_module.current_players[player_id]
+-- Function to get a player's instance
+function player_manager.get_player(player_id)
+  return player_manager.current_players[player_id]
 end
 
-function player_manager_module.get_player_color(player_id)
-  local p_instance = player_manager_module.get_player(player_id)
+-- Function to get a player's color (can still be useful as a direct utility)
+function player_manager.get_player_color(player_id)
+  local p_instance = player_manager.get_player(player_id)
   if p_instance then
     return p_instance:get_color()
   else
-    return 7
+    return 7 -- Default to white if player not found, or handle error
   end
 end
 
-function player_manager_module.get_player_ghost_color(player_id)
-  local p_instance = player_manager_module.get_player(player_id)
+-- Function to get a player's ghost color
+function player_manager.get_player_ghost_color(player_id)
+  local p_instance = player_manager.get_player(player_id)
   if p_instance then
     return p_instance:get_ghost_color()
   else
-    return 1
+    return 1 -- Default to dark blue if player not found
   end
 end
 
-function player_manager_module.get_player_count()
-  return #player_manager_module.current_players
+-- Function to get the current number of initialized players
+function player_manager.get_player_count()
+  return #player_manager.current_players
 end
 
--- Assign the local module to the global variable AT THE END of the file.
-player_manager = player_manager_module
--- Ensure linter knows player_manager is now global
---#globals player_manager
--->8
----@diagnostic disable: undefined-global
--- src/5.piece.lua
+-- Example Usage (for testing within this file, remove or comment out for production)
+-- player_manager.init_players(2)
+-- local p1 = player_manager.get_player(1)
+-- if p1 then
+--   printh("Player 1 ID: " .. p1.id)
+--   printh("Player 1 Color: " .. p1:get_color())
+--   printh("Player 1 Ghost Color: " .. p1:get_ghost_color()) -- Test ghost color
+--   p1:add_score(10)
+--   printh("Player 1 Score: " .. p1:get_score())
+-- end
 
-local piece_module = {} -- Define as local module table
+-- local p2_color = player_manager.get_player_color(2)
+-- printh("Player 2 Color (direct): " .. (p2_color or "not found"))
+-- local p2_ghost_color = player_manager.get_player_ghost_color(2)
+-- printh("Player 2 Ghost Color (direct): " .. (p2_ghost_color or "not found"))
+
+
+-- return player_manager -- Old return statement
+-- player_manager is global by default via the above declaration
+-->8
+-- src/5.piece.lua
 
 -- Forward declarations for metatables if needed
 local Piece = {}
@@ -980,7 +1007,7 @@ local DEFENDER_WIDTH = 8
 local DEFENDER_HEIGHT = 8
 local ATTACKER_TRIANGLE_HEIGHT = 8
 local ATTACKER_TRIANGLE_BASE = 6
--- local LASER_LEN = 60 -- Global LASER_LEN from 0.init.lua will be used
+    -- local LASER_LEN = 60 -- This is globally defined in 0.init.lua as LASER_LEN and accessed via _G.LASER_LEN
 
 -- Cached math functions
 local cos, sin = cos, sin
@@ -1004,7 +1031,7 @@ function Piece:get_color()
     return self.ghost_color_override
   end
   if self.owner_id then
-    local owner_player = player_manager.get_player(self.owner_id) 
+    local owner_player = player_manager.get_player(self.owner_id)
     if owner_player then
       return owner_player:get_color()
     end
@@ -1060,7 +1087,6 @@ end
 function Attacker:new(o)
   o = o or {}
   o.type = "attacker"
-  o.is_currently_scoring = false -- Initialize scoring flag
   -- Attacker-specific initializations
   return Piece.new(self, o) -- Call base constructor
 end
@@ -1077,22 +1103,22 @@ function Attacker:draw()
   local dir_x = cos(self.orientation)
   local dir_y = sin(self.orientation)
   local laser_color = self:get_color() -- Default laser color
-  local laser_end_x = apex.x + dir_x * LASER_LEN 
-  local laser_end_y = apex.y + dir_y * LASER_LEN 
-  local closest_hit_t = LASER_LEN 
+  local laser_end_x = apex.x + dir_x * LASER_LEN
+  local laser_end_y = apex.y + dir_y * LASER_LEN
+  local closest_hit_t = LASER_LEN
 
   local hit_defender_state = nil
 
   -- Check for intersections with all defenders
-  if pieces then 
-    for _, other_piece in ipairs(pieces) do 
+  if pieces then
+    for _, other_piece in ipairs(pieces) do
       if other_piece.type == "defender" then
         local def_corners = other_piece:get_draw_vertices()
         for j = 1, #def_corners do
-          local k_idx = (j % #def_corners) + 1
-          local ix, iy, t = ray_segment_intersect( 
+          local k = (j % #def_corners) + 1
+          local ix, iy, t = ray_segment_intersect(
             apex.x, apex.y, dir_x, dir_y,
-            def_corners[j].x, def_corners[j].y, def_corners[k_idx].x, def_corners[k_idx].y
+            def_corners[j].x, def_corners[j].y, def_corners[k].x, def_corners[k].y
           )
           if t and t >= 0 and t < closest_hit_t then
             closest_hit_t = t
@@ -1148,10 +1174,6 @@ function Attacker:draw()
   end
 end
 
-function Attacker:is_scoring()
-  return self.is_currently_scoring or false
-end
-
 -- Defender methods
 function Defender:new(o)
   o = o or {}
@@ -1175,7 +1197,9 @@ function Defender:draw()
 end
 
 -- Factory function to create pieces
-function piece_module.create_piece(params) -- Assign to local module table
+-- Global `pieces` table will be needed for laser interactions in Attacker:draw
+-- It might be passed to Attacker:draw or accessed globally if available.
+function create_piece(params) -- `params` should include owner_id, type, position, orientation
   local piece_obj
   if params.type == "attacker" then
     piece_obj = Attacker:new(params)
@@ -1188,10 +1212,13 @@ function piece_module.create_piece(params) -- Assign to local module table
   return piece_obj
 end
 
--- Assign the local module's function to the global variable AT THE END of the file.
-create_piece = piece_module.create_piece
--- Ensure linter knows create_piece is now global
---#globals create_piece
+-- The return statement makes these functions/tables available when this file is included.
+-- We might not need to return Piece, Attacker, Defender if only create_piece is used externally.
+-- create_piece is global by default
+-- Or, more structured:
+-- return {
+--   create_piece = create_piece
+-- }
 __gfx__
 00000000aaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000a9999999999999999999999a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
