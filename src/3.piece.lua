@@ -17,7 +17,7 @@ DEFENDER_WIDTH = 8
 DEFENDER_HEIGHT = 8
 local ATTACKER_TRIANGLE_HEIGHT = 8
 local ATTACKER_TRIANGLE_BASE = 6
-    -- local LASER_LEN = 60 -- This is globally defined in 0.init.lua as LASER_LEN and accessed via _G.LASER_LEN
+    -- local LASER_LEN = 60 -- This is globally defined in 0.init.lua as LASER_LEN and accessed via LASER_LEN
 
 -- Cached math functions
 local cos, sin = cos, sin

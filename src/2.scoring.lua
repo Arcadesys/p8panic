@@ -1,9 +1,33 @@
 -- src/2.scoring.lua
 -- Scoring Module
---#globals pieces player_manager ray_segment_intersect LASER_LEN
+--#globals pieces player_manager ray_segment_intersect LASER_LEN _G
 --#globals cos sin add ipairs del deli
 
-function score_attackers()
+function reset_player_scores()
+  if player_manager and player_manager.current_players then
+    for _, player_obj in ipairs(player_manager.current_players) do
+      if player_obj then
+        player_obj.score = 0
+      end
+    end
+  end
+end
+
+function reset_piece_states_for_scoring()
+  for _, p_obj in ipairs(pieces) do
+    if p_obj then
+      p_obj.hits = 0
+      p_obj.targeting_attackers = {}
+      -- p_obj.state = nil -- or some default state if applicable
+    end
+  end
+end
+
+function score_pieces()
+  reset_player_scores() -- Reset scores for all players
+  reset_piece_states_for_scoring() -- Reset hits and targeting attackers for all pieces
+
+  -- Score attackers hitting defenders
   for _, attacker_obj in ipairs(pieces) do
     if attacker_obj and attacker_obj.type == "attacker" then
       local attacker_vertices = attacker_obj:get_draw_vertices()
@@ -38,16 +62,20 @@ function score_attackers()
                 defender_obj.state = "overcharged"
                 if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
                   -- Score for the hit
-                  attacker_player:add_score(1) 
-                  -- If defender is overcharged by an opponent, attacker captures the defender's color
-                  local captured_piece_color = defender_player:get_color()
-                  attacker_player:add_captured_piece(captured_piece_color)
-                  defender_obj.captured_flag = true -- Mark for removal
+                  attacker_player:add_score(1)
+                  -- Defender is now overcharged. The defender\'s owner can use \'capture\' mode
+                  -- to capture attackers targeting this defender. The defender itself is not
+                  -- removed by this interaction, nor does the attacker\'s player capture the defender\'s color.
                 end
               elseif defender_obj.hits == 1 then
-                defender_obj.state = "neutral" -- Hit once, still neutral
+                defender_obj.state = "successful" -- Hit once, still neutral
               end
-              break -- Attacker hits this defender, move to next attacker or finish
+              -- No break here, an attacker's laser can pass through multiple segments of a defender
+              -- or even multiple defenders if LASER_LEN is long enough and pieces are aligned.
+              -- However, for scoring, we usually count one hit per attacker-defender pair.
+              -- The current logic correctly adds to .hits for each segment intersected.
+              -- If an attacker should only score once per defender, regardless of segments,
+              -- a flag would be needed here. For now, assuming hits accumulate per segment.
             end
           end
         end
@@ -55,6 +83,24 @@ function score_attackers()
       end
     end
     ::next_attacker_score::
+  end
+
+  -- Score defenders based on incoming attackers
+  for _, p_obj in ipairs(pieces) do
+    if p_obj and p_obj.type == "defender" then
+      local num_attackers_targeting = 0
+      if p_obj.targeting_attackers then
+        num_attackers_targeting = #p_obj.targeting_attackers
+      end
+
+      if num_attackers_targeting <= 1 then
+        local defender_player = player_manager.get_player(p_obj.owner_id)
+        if defender_player then
+          defender_player:add_score(1)
+          -- Potentially update defender state here if needed, e.g., p_obj.state = "defending_well"
+        end
+      end
+    end
   end
 
   local remaining_pieces = {}
@@ -67,3 +113,6 @@ function score_attackers()
   end
   pieces = remaining_pieces
 end
+
+-- Renamed from score_attackers to score_pieces to reflect broader scope
+score_pieces = score_pieces

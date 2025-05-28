@@ -1,13 +1,13 @@
 -- src/1.placement.lua
 -- Placement Module
---#globals create_piece pieces ray_segment_intersect LASER_LEN player_manager
+--#globals create_piece pieces ray_segment_intersect LASER_LEN player_manager score_pieces
 --#globals cos sin max min sqrt abs add all ipairs
 --#globals N_PLAYERS -- Though not directly used, it's part of the context of 0.init
 
 -- Cached math functions (assuming they are available globally from 0.init.lua or PICO-8 defaults)
--- local cos, sin = _G.cos, _G.sin -- Or just use them directly
--- local max, min = _G.max, _G.min
--- local sqrt, abs = _G.sqrt, _G.abs
+-- local cos, sin = cos, sin -- Or just use them directly
+-- local max, min = max, min
+-- local sqrt, abs = sqrt, abs
 
 function legal_placement(piece_params)
   local bw, bh = 128, 128
@@ -120,6 +120,7 @@ function place_piece(piece_params, player_obj)
       local new_piece_obj = create_piece(piece_params)
       if new_piece_obj then
         add(pieces, new_piece_obj)
+        score_pieces() -- Recalculate scores after placing a piece
         return true
       else
         printh("Failed to create piece object.")

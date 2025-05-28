@@ -2,12 +2,16 @@
 -- p8panic - A game of tactical geometry
 
 player_manager = {} -- Initialize player_manager globally here
-create_piece = nil -- Initialize create_piece globally here (will be defined by 5.piece.lua)
+create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua now)
 pieces = {} -- Initialize pieces globally here
 LASER_LEN = 60 -- Initialize LASER_LEN globally here
 N_PLAYERS = 4 -- Initialize N_PLAYERS globally here
 cursors = {} -- Initialize cursors globally here
 CAPTURE_RADIUS_SQUARED = 64 -- Initialize CAPTURE_RADIUS_SQUARED globally here
+
+-- Declare these here, they will be assigned in _init()
+original_update_game_logic_func = nil
+original_update_controls_func = nil
 
 -------------------------------------------
 -- Helpers & Global Constants/Variables --
@@ -155,13 +159,8 @@ function internal_update_game_logic()
       p_item.captured_flag = false -- Reset captured flag
     end
   end
-  if score_attackers then score_attackers() else printh("Error: score_attackers is nil!") end
+  if score_attackers then score_attackers() else printh("Error: score_attackers is nil in internal_update_game_logic!") end
 end
-
--- Assign to the forward-declared variables AFTER includes have defined the functions
-original_update_game_logic_func = internal_update_game_logic
-original_update_controls_func = update_controls -- This will now point to the function in 3.controls.lua
-
 
 function go_to_state(new_state)
   if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
@@ -188,6 +187,18 @@ function _init()
   end
   player_manager.init_players(N_PLAYERS) -- Initialize players
   init_cursors(N_PLAYERS)               -- Initialize cursors for each player
+  
+  -- Assign function pointers here, after all tabs are loaded
+  original_update_game_logic_func = internal_update_game_logic
+  if update_controls then
+    original_update_controls_func = update_controls
+  else
+    printh("ERROR: update_controls is NIL in _init!", true)
+  end
+  if not score_attackers then
+     printh("ERROR: score_attackers is NIL in _init!", true)
+  end
+
   go_to_state(GAME_STATE_PLAYING)       -- Immediately enter playing state so controls are active
   if not player_manager then
     printh("ERROR: player_manager is NIL in _init() AFTER init_players", true) -- Debug print
@@ -217,7 +228,16 @@ function _update()
   if current_game_state == GAME_STATE_MENU then
     update_menu_state()
   elseif current_game_state == GAME_STATE_PLAYING then
-    update_playing_state()
+    if original_update_controls_func then 
+      original_update_controls_func() 
+    else 
+      printh("Error: original_update_controls_func is nil in _update!") 
+    end
+    if original_update_game_logic_func then 
+      original_update_game_logic_func() 
+    else 
+      printh("Error: original_update_game_logic_func is nil in _update!") 
+    end
   end
 end
 

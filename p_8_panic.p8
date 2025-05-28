@@ -5,12 +5,16 @@ __lua__
 -- p8panic - A game of tactical geometry
 
 player_manager = {} -- Initialize player_manager globally here
-create_piece = nil -- Initialize create_piece globally here (will be defined by 5.piece.lua)
+create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua now)
 pieces = {} -- Initialize pieces globally here
 LASER_LEN = 60 -- Initialize LASER_LEN globally here
 N_PLAYERS = 4 -- Initialize N_PLAYERS globally here
 cursors = {} -- Initialize cursors globally here
 CAPTURE_RADIUS_SQUARED = 64 -- Initialize CAPTURE_RADIUS_SQUARED globally here
+
+-- Declare these here, they will be assigned in _init()
+original_update_game_logic_func = nil
+original_update_controls_func = nil
 
 -------------------------------------------
 -- Helpers & Global Constants/Variables --
@@ -158,13 +162,8 @@ function internal_update_game_logic()
       p_item.captured_flag = false -- Reset captured flag
     end
   end
-  if score_attackers then score_attackers() else printh("Error: score_attackers is nil!") end
+  if score_attackers then score_attackers() else printh("Error: score_attackers is nil in internal_update_game_logic!") end
 end
-
--- Assign to the forward-declared variables AFTER includes have defined the functions
-original_update_game_logic_func = internal_update_game_logic
-original_update_controls_func = update_controls -- This will now point to the function in 3.controls.lua
-
 
 function go_to_state(new_state)
   if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
@@ -191,6 +190,18 @@ function _init()
   end
   player_manager.init_players(N_PLAYERS) -- Initialize players
   init_cursors(N_PLAYERS)               -- Initialize cursors for each player
+  
+  -- Assign function pointers here, after all tabs are loaded
+  original_update_game_logic_func = internal_update_game_logic
+  if update_controls then
+    original_update_controls_func = update_controls
+  else
+    printh("ERROR: update_controls is NIL in _init!", true)
+  end
+  if not score_attackers then
+     printh("ERROR: score_attackers is NIL in _init!", true)
+  end
+
   go_to_state(GAME_STATE_PLAYING)       -- Immediately enter playing state so controls are active
   if not player_manager then
     printh("ERROR: player_manager is NIL in _init() AFTER init_players", true) -- Debug print
@@ -220,7 +231,16 @@ function _update()
   if current_game_state == GAME_STATE_MENU then
     update_menu_state()
   elseif current_game_state == GAME_STATE_PLAYING then
-    update_playing_state()
+    if original_update_controls_func then 
+      original_update_controls_func() 
+    else 
+      printh("Error: original_update_controls_func is nil in _update!") 
+    end
+    if original_update_game_logic_func then 
+      original_update_game_logic_func() 
+    else 
+      printh("Error: original_update_game_logic_func is nil in _update!") 
+    end
   end
 end
 
@@ -466,86 +486,145 @@ end
 -- return player_manager -- Old return statement
 -- player_manager is global by default via the above declaration
 -->8
---iterate through all attackers and score them
+-- src/2.scoring.lua
+-- Scoring Module
+--#globals pieces player_manager ray_segment_intersect LASER_LEN _G
+--#globals cos sin add ipairs del deli
 
---for each attacker, check if its laser is hitting a defender.
---if it is, increment the defender's hits by 1.
---if a defender's hits reach 2, the attackers pointed at it are considered successful and each score 1 point for their owners.
---if a defender's   hits reach 3, it is considered overcharged. All pieces targeting it are still considered successful, for purposes of scoring, but it entitles the player to capture a piece attacking them.
-function score_attackers()
-  for _, attacker in ipairs(pieces) do
-    if attacker and attacker.type == "attacker" then
-      local attacker_vertices = get_piece_draw_vertices(attacker)
-      if not attacker_vertices or #attacker_vertices == 0 then goto next_attacker end -- Should not happen if piece is valid
-      local apex = attacker_vertices[1] -- The first vertex is the apex for attackers
-      local dir_x = cos(attacker.orientation)
-      local dir_y = sin(attacker.orientation)
+function reset_player_scores()
+  if player_manager and player_manager.current_players then
+    for _, player_obj in ipairs(player_manager.current_players) do
+      if player_obj then
+        player_obj.score = 0
+      end
+    end
+  end
+end
+
+function reset_piece_states_for_scoring()
+  for _, p_obj in ipairs(pieces) do
+    if p_obj then
+      p_obj.hits = 0
+      p_obj.targeting_attackers = {}
+      -- p_obj.state = nil -- or some default state if applicable
+    end
+  end
+end
+
+function score_pieces()
+  reset_player_scores() -- Reset scores for all players
+  reset_piece_states_for_scoring() -- Reset hits and targeting attackers for all pieces
+
+  -- Score attackers hitting defenders
+  for _, attacker_obj in ipairs(pieces) do
+    if attacker_obj and attacker_obj.type == "attacker" then
+      local attacker_vertices = attacker_obj:get_draw_vertices()
+      if not attacker_vertices or #attacker_vertices == 0 then goto next_attacker_score end
+      local apex = attacker_vertices[1]
+      local dir_x = cos(attacker_obj.orientation)
+      local dir_y = sin(attacker_obj.orientation)
       
-      for _, defender in ipairs(pieces) do
-        if defender and defender.type == "defender" then
-          local defender_corners = get_piece_draw_vertices(defender)
-          if not defender_corners or #defender_corners == 0 then goto next_defender end
-
+      for _, defender_obj in ipairs(pieces) do
+        if defender_obj and defender_obj.type == "defender" then
+          local defender_corners = defender_obj:get_draw_vertices()
+          if not defender_corners or #defender_corners == 0 then goto next_defender_score end
           for j = 1, #defender_corners do
             local k = (j % #defender_corners) + 1
-            local x1, y1 = defender_corners[j].x, defender_corners[j].y
-            local x2, y2 = defender_corners[k].x, defender_corners[k].y
-            
-            local ix, iy, t = ray_segment_intersect(apex.x, apex.y, dir_x, dir_y, x1, y1, x2, y2)
-            
-            if t and t >= 0 and t <= LASER_LEN then -- Hit within laser range
-              -- Ensure defender.hits and defender.targeting_attackers are initialized
-              defender.hits = (defender.hits or 0)
-              defender.targeting_attackers = defender.targeting_attackers or {}
-
-              defender.hits += 1 -- Increment hits on the defender
+            local ix, iy, t = ray_segment_intersect(apex.x, apex.y, dir_x, dir_y,
+                                                     defender_corners[j].x, defender_corners[j].y,
+                                                     defender_corners[k].x, defender_corners[k].y)
+            if t and t >= 0 and t <= LASER_LEN then
+              defender_obj.hits = (defender_obj.hits or 0) + 1
+              defender_obj.targeting_attackers = defender_obj.targeting_attackers or {}
+              add(defender_obj.targeting_attackers, attacker_obj)
               
-              -- If hits reach 2 or more, score the attacker
-              if defender.hits == 2 then
-                if attacker.owner and scores[attacker.owner] then
-                  scores[attacker.owner] += 1 -- Increment score for attacker owner
-                end
-                defender.state = "successful"
-              elseif defender.hits == 3 then
-                 if attacker.owner and scores[attacker.owner] then
-                  scores[attacker.owner] += 1 -- Still successful but overcharged
-                end
-                defender.state = "overcharged"
-              end
+              local attacker_player = player_manager.get_player(attacker_obj.owner_id)
+              local defender_player = player_manager.get_player(defender_obj.owner_id)
 
-              -- Track which attackers are targeting this defender
-              add(defender.targeting_attackers, attacker) -- Use PICO-8 'add'
-              break -- No need to check other segments once we hit one
+              if defender_obj.hits == 2 then
+                defender_obj.state = "unsuccessful" -- Defender is hit, but not overcharged
+                if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
+                  attacker_player:add_score(1)
+                end
+              elseif defender_obj.hits >= 3 then -- Changed to >= 3
+                defender_obj.state = "overcharged"
+                if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
+                  -- Score for the hit
+                  attacker_player:add_score(1)
+                  -- Defender is now overcharged. The defender\'s owner can use \'capture\' mode
+                  -- to capture attackers targeting this defender. The defender itself is not
+                  -- removed by this interaction, nor does the attacker\'s player capture the defender\'s color.
+                end
+              elseif defender_obj.hits == 1 then
+                defender_obj.state = "successful" -- Hit once, still neutral
+              end
+              -- No break here, an attacker's laser can pass through multiple segments of a defender
+              -- or even multiple defenders if LASER_LEN is long enough and pieces are aligned.
+              -- However, for scoring, we usually count one hit per attacker-defender pair.
+              -- The current logic correctly adds to .hits for each segment intersected.
+              -- If an attacker should only score once per defender, regardless of segments,
+              -- a flag would be needed here. For now, assuming hits accumulate per segment.
             end
           end
         end
-        ::next_defender::
+        ::next_defender_score::
       end
     end
-    ::next_attacker::
+    ::next_attacker_score::
   end
+
+  -- Score defenders based on incoming attackers
+  for _, p_obj in ipairs(pieces) do
+    if p_obj and p_obj.type == "defender" then
+      local num_attackers_targeting = 0
+      if p_obj.targeting_attackers then
+        num_attackers_targeting = #p_obj.targeting_attackers
+      end
+
+      if num_attackers_targeting <= 1 then
+        local defender_player = player_manager.get_player(p_obj.owner_id)
+        if defender_player then
+          defender_player:add_score(1)
+          -- Potentially update defender state here if needed, e.g., p_obj.state = "defending_well"
+        end
+      end
+    end
+  end
+
+  local remaining_pieces = {}
+  for _,p_obj in ipairs(pieces) do
+    if not p_obj.captured_flag then
+      add(remaining_pieces, p_obj)
+    else
+      printh("Piece removed due to overcharge capture: P" .. p_obj.owner_id .. " " .. p_obj.type)
+    end
+  end
+  pieces = remaining_pieces
 end
+
+-- Renamed from score_attackers to score_pieces to reflect broader scope
+score_pieces = score_pieces
 -->8
 -- src/5.piece.lua
 
 -- Forward declarations for metatables if needed
-local Piece = {}
+Piece = {}
 Piece.__index = Piece
 
-local Attacker = {}
+Attacker = {}
 Attacker.__index = Attacker
 setmetatable(Attacker, {__index = Piece}) -- Inherit from Piece
 
-local Defender = {}
+Defender = {}
 Defender.__index = Defender
 setmetatable(Defender, {__index = Piece}) -- Inherit from Piece
 
 -- Piece constants (can be moved from 0.init.lua)
-local DEFENDER_WIDTH = 8
-local DEFENDER_HEIGHT = 8
+DEFENDER_WIDTH = 8
+DEFENDER_HEIGHT = 8
 local ATTACKER_TRIANGLE_HEIGHT = 8
 local ATTACKER_TRIANGLE_BASE = 6
-    -- local LASER_LEN = 60 -- This is globally defined in 0.init.lua as LASER_LEN and accessed via _G.LASER_LEN
+    -- local LASER_LEN = 60 -- This is globally defined in 0.init.lua as LASER_LEN and accessed via LASER_LEN
 
 -- Cached math functions
 local cos, sin = cos, sin
@@ -760,14 +839,14 @@ end
 -->8
 -- src/1.placement.lua
 -- Placement Module
---#globals create_piece pieces ray_segment_intersect LASER_LEN player_manager
+--#globals create_piece pieces ray_segment_intersect LASER_LEN player_manager score_pieces
 --#globals cos sin max min sqrt abs add all ipairs
 --#globals N_PLAYERS -- Though not directly used, it's part of the context of 0.init
 
 -- Cached math functions (assuming they are available globally from 0.init.lua or PICO-8 defaults)
--- local cos, sin = _G.cos, _G.sin -- Or just use them directly
--- local max, min = _G.max, _G.min
--- local sqrt, abs = _G.sqrt, _G.abs
+-- local cos, sin = cos, sin -- Or just use them directly
+-- local max, min = max, min
+-- local sqrt, abs = sqrt, abs
 
 function legal_placement(piece_params)
   local bw, bh = 128, 128
@@ -880,6 +959,7 @@ function place_piece(piece_params, player_obj)
       local new_piece_obj = create_piece(piece_params)
       if new_piece_obj then
         add(pieces, new_piece_obj)
+        score_pieces() -- Recalculate scores after placing a piece
         return true
       else
         printh("Failed to create piece object.")
@@ -1016,11 +1096,14 @@ __gfx__
 00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000a9444444444444444444449a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000a9999999999999999999999a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000aaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __map__
 0102020202020202020202020202020300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
