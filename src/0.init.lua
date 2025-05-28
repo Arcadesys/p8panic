@@ -3,7 +3,7 @@
 
 player_manager = {} -- Initialize player_manager globally here
 STASH_SIZE = 6 -- Default stash size, configurable in menu (min 3, max 10)
-create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua now)
+create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua)
 pieces = {} -- Initialize pieces globally here
 LASER_LEN = 60 -- Initialize LASER_LEN globally here
 N_PLAYERS = 4 -- Initialize N_PLAYERS globally here
@@ -93,6 +93,10 @@ function attempt_capture(player_obj, cursor)
   end
   return false
 end
+
+sfx_on=true
+
+game_timer = 3 -- Default game time in minutes
 
 -- All modules are loaded via Pico-8 tabs; #include directives are not used.
 -- Main Pico-8 functions (_init, _update, _draw) and their specific logic

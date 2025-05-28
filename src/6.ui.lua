@@ -2,7 +2,7 @@
 -- This file will contain functions for drawing UI elements,
 -- including the main menu and in-game HUD.
 
---#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size tostring rectfill min type pairs ipairs
+--#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size game_timer tostring rectfill min type pairs ipairs btnp max STASH_SIZE
 
 ui = {}
 -- NP and PM can remain cached if N_PLAYERS and player_manager are set before this file loads
@@ -14,6 +14,7 @@ function ui.draw_main_menu()
   local options = {
     "Players: " .. (menu_player_count or N_PLAYERS or 2), -- Use global menu_player_count
     "Stash Size: " .. (menu_stash_size or STASH_SIZE or 3), -- Use global menu_stash_size
+    "Game Timer: " .. (game_timer or 3) .. " min", -- Add game timer option
     "Start Game",
     "How To Play"
   }
@@ -148,7 +149,7 @@ function ui.draw_game_hud()
 end
  
 -- Draw the How To Play screen
-function ui.draw_how_to_play()
+function ui.draw_how_to_play() -- Keep this instance
   cls(0)
   print("HOW TO PLAY", 30, 20, 7)
   -- Placeholder instructions
@@ -157,9 +158,9 @@ function ui.draw_how_to_play()
   print("Press (X) to return", 10, 100, 7)
 end
 
-function _update_main_menu_logic()
+function ui.update_main_menu_logic() -- Renamed from _update_main_menu_logic
   -- Navigate options
-  if btnp(1) then menu_option = min(4, menu_option + 1) end -- right
+  if btnp(1) then menu_option = min(5, menu_option + 1) end -- right, increased max to 5
   if btnp(0) then menu_option = max(1, menu_option - 1) end -- left
   -- Adjust values
   if menu_option == 1 then
@@ -168,17 +169,21 @@ function _update_main_menu_logic()
   elseif menu_option == 2 then
     if btnp(2) then menu_stash_size = min(10, menu_stash_size + 1) end -- up
     if btnp(3) then menu_stash_size = max(3, menu_stash_size - 1) end -- down
+  elseif menu_option == 3 then -- Adjust game timer
+    if btnp(2) then game_timer = min(10, game_timer + 1) end -- up, max 10 minutes
+    if btnp(3) then game_timer = max(1, game_timer - 1) end -- down, min 1 minute
   end
   -- Select option
   if btnp(5) then -- ❎ (X)
-    if menu_option == 3 then
+    if menu_option == 4 then -- Adjusted start game option index
       player_count = menu_player_count
       stash_count = menu_stash_size
       N_PLAYERS = menu_player_count
       STASH_SIZE = menu_stash_size
+      -- game_timer is already set
       global_game_state = "in_game"
-      printh("Starting game from menu with P:"..player_count.." S:"..stash_count)
-    elseif menu_option == 4 then
+      printh("Starting game from menu with P:"..player_count.." S:"..stash_count.." T:"..game_timer)
+    elseif menu_option == 5 then -- Adjusted how to play option index
       global_game_state = "how_to_play"
     end
   end

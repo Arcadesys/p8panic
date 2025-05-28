@@ -6,7 +6,7 @@ __lua__
 
 player_manager = {} -- Initialize player_manager globally here
 STASH_SIZE = 6 -- Default stash size, configurable in menu (min 3, max 10)
-create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua now)
+create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua)
 pieces = {} -- Initialize pieces globally here
 LASER_LEN = 60 -- Initialize LASER_LEN globally here
 N_PLAYERS = 4 -- Initialize N_PLAYERS globally here
@@ -96,6 +96,10 @@ function attempt_capture(player_obj, cursor)
   end
   return false
 end
+
+sfx_on=true
+
+game_timer = 3 -- Default game time in minutes
 
 -- All modules are loaded via Pico-8 tabs; #include directives are not used.
 -- Main Pico-8 functions (_init, _update, _draw) and their specific logic
@@ -932,7 +936,7 @@ end
 -- This file will contain functions for drawing UI elements,
 -- including the main menu and in-game HUD.
 
---#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size tostring rectfill min type pairs ipairs
+--#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size game_timer tostring rectfill min type pairs ipairs btnp max STASH_SIZE
 
 ui = {}
 -- NP and PM can remain cached if N_PLAYERS and player_manager are set before this file loads
@@ -944,6 +948,7 @@ function ui.draw_main_menu()
   local options = {
     "Players: " .. (menu_player_count or N_PLAYERS or 2), -- Use global menu_player_count
     "Stash Size: " .. (menu_stash_size or STASH_SIZE or 3), -- Use global menu_stash_size
+    "Game Timer: " .. (game_timer or 3) .. " min", -- Add game timer option
     "Start Game",
     "How To Play"
   }
@@ -1078,7 +1083,7 @@ function ui.draw_game_hud()
 end
  
 -- Draw the How To Play screen
-function ui.draw_how_to_play()
+function ui.draw_how_to_play() -- Keep this instance
   cls(0)
   print("HOW TO PLAY", 30, 20, 7)
   -- Placeholder instructions
@@ -1087,9 +1092,9 @@ function ui.draw_how_to_play()
   print("Press (X) to return", 10, 100, 7)
 end
 
-function _update_main_menu_logic()
+function ui.update_main_menu_logic() -- Renamed from _update_main_menu_logic
   -- Navigate options
-  if btnp(1) then menu_option = min(4, menu_option + 1) end -- right
+  if btnp(1) then menu_option = min(5, menu_option + 1) end -- right, increased max to 5
   if btnp(0) then menu_option = max(1, menu_option - 1) end -- left
   -- Adjust values
   if menu_option == 1 then
@@ -1098,17 +1103,21 @@ function _update_main_menu_logic()
   elseif menu_option == 2 then
     if btnp(2) then menu_stash_size = min(10, menu_stash_size + 1) end -- up
     if btnp(3) then menu_stash_size = max(3, menu_stash_size - 1) end -- down
+  elseif menu_option == 3 then -- Adjust game timer
+    if btnp(2) then game_timer = min(10, game_timer + 1) end -- up, max 10 minutes
+    if btnp(3) then game_timer = max(1, game_timer - 1) end -- down, min 1 minute
   end
   -- Select option
   if btnp(5) then -- ❎ (X)
-    if menu_option == 3 then
+    if menu_option == 4 then -- Adjusted start game option index
       player_count = menu_player_count
       stash_count = menu_stash_size
       N_PLAYERS = menu_player_count
       STASH_SIZE = menu_stash_size
+      -- game_timer is already set
       global_game_state = "in_game"
-      printh("Starting game from menu with P:"..player_count.." S:"..stash_count)
-    elseif menu_option == 4 then
+      printh("Starting game from menu with P:"..player_count.." S:"..stash_count.." T:"..game_timer)
+    elseif menu_option == 5 then -- Adjusted how to play option index
       global_game_state = "how_to_play"
     end
   end
@@ -1210,17 +1219,20 @@ end
 -- PICO-8 automatically makes functions global if they are not declared local
 -- So, create_cursor will be global by default.
 -->8
--- src/7.main.lua
+-- src/8.main.lua
 -- Main game loop functions (_init, _update, _draw)
 
---#globals player_manager pieces cursors ui N_PLAYERS STASH_SIZE global_game_state
+--#globals player_manager pieces cursors ui N_PLAYERS STASH_SIZE global_game_state game_timer time flr string add table
 --#globals menu_option menu_player_count menu_stash_size player_count stash_count
 --#globals create_player create_cursor internal_update_game_logic update_game_logic update_controls
---#globals original_update_game_logic_func original_update_controls_func
+--#globals original_update_game_logic_func original_update_controls_func update_game_state
 --#globals printh all cls btnp menuitem print
 
 -- Ensure ui_handler is assigned from the global ui table from 6.ui.lua
 local ui_handler -- local to this file, assigned in _init
+
+local game_start_time = 0
+local remaining_time_seconds = 0
 
 ------------------------------------------
 -- Main Pico-8 Functions
@@ -1245,7 +1257,9 @@ function _init()
     printh("Warning: global 'ui' (from 6.ui.lua) not found in _init. UI might not draw.")
     ui_handler = {
       draw_main_menu = function() print("NO UI - MAIN MENU", 40,60,8) end,
-      draw_game_hud = function() print("NO UI - GAME HUD", 40,60,8) end
+      draw_game_hud = function() print("NO UI - GAME HUD", 40,60,8) end,
+      draw_how_to_play = function() print("NO UI - HOW TO PLAY", 20,60,8) end,
+      update_main_menu_logic = function() printh("Warning: NO UI - update_main_menu_logic not called") end
     }
   end
 
@@ -1253,6 +1267,13 @@ function _init()
     global_game_state = "main_menu" 
     printh("Returning to main menu via pause menu...")
     _init_main_menu_state() 
+  end)
+
+  -- Add game timer to menu item
+  menuitem(2, "Set Timer: " .. (game_timer or 3) .. " min", function()
+    -- This is a placeholder, actual timer setting is in _update_main_menu_logic
+    -- but we need a menu item for it to be visible in pause menu if desired.
+    -- Or, remove this if timer is only set from main menu.
   end)
 
   if global_game_state == "main_menu" then
@@ -1268,7 +1289,11 @@ end
 
 function _update()
   if global_game_state == "main_menu" then
-    _update_main_menu_logic()
+    if ui_handler and ui_handler.update_main_menu_logic then
+      ui_handler.update_main_menu_logic()
+    else
+      printh("Warning: ui_handler.update_main_menu_logic not found!")
+    end
     if global_game_state == "in_game" then
       -- N_PLAYERS and STASH_SIZE have been set by menu logic
       init_game_properly()
@@ -1283,6 +1308,38 @@ function _update()
     end
   elseif global_game_state == "in_game" then
     _update_game_logic()
+
+    -- Timer logic
+    if remaining_time_seconds > 0 then
+      remaining_time_seconds -= 1/30 -- Pico-8 runs at 30 FPS
+      if remaining_time_seconds <= 0 then
+        remaining_time_seconds = 0
+        global_game_state = "game_over"
+        printh("Game Over! Time is up.")
+        -- Determine winner(s) - can be moved to a separate function
+        local max_score = -1
+        local winners = {}
+        for i=1, N_PLAYERS do
+          local p = player_manager.get_player(i)
+          if p then
+            if p.score > max_score then
+              max_score = p.score
+              winners = {p.id}
+            elseif p.score == max_score then
+              add(winners, p.id)
+            end
+          end
+        end
+        printh("Winner(s): " .. table.concat(winners, ", ") .. " with score: " .. max_score)
+        -- You might want to display this on screen too
+      end
+    end
+  elseif global_game_state == "game_over" then
+    -- Wait for a button press to return to main menu
+    if btnp(5) then -- (X) button
+      global_game_state = "main_menu"
+      _init_main_menu_state()
+    end
   end
 end
 
@@ -1301,6 +1358,18 @@ function _draw()
     end
   elseif global_game_state == "in_game" then
     _draw_game_screen()
+  elseif global_game_state == "game_over" then
+    cls(0)
+    print("GAME OVER!", 48, 50, 8)
+    -- Display winner information (this is basic, enhance as needed)
+    local max_score = -1
+    local winner_text = "WINNER(S): "
+    -- Recalculate or store winners from _update
+    -- For simplicity, let's assume winners are stored in a global or passed
+    -- For now, just a generic message
+    -- TODO: Display actual winners and scores
+    print("Time is up!", 45, 60, 7)
+    print("Press (X) to return", 28, 100, 7)
   end
 end
 
@@ -1312,40 +1381,15 @@ function _init_main_menu_state()
   -- Use global N_PLAYERS and STASH_SIZE as defaults for the menu
   menu_player_count = N_PLAYERS 
   menu_stash_size = STASH_SIZE   
-  printh("Main menu state initialized: P=" .. menu_player_count .. " S=" .. menu_stash_size)
+  -- game_timer is already a global, potentially set by previous menu interaction
+  printh("Main menu state initialized: P=" .. menu_player_count .. " S=" .. menu_stash_size .. " T:" .. game_timer)
 end
 
-function _update_main_menu_logic()
-  -- Navigate options
-  if btnp(➡️) then menu_option = min(4, menu_option + 1) end
-  if btnp(⬅️) then menu_option = max(1, menu_option - 1) end
-  -- Adjust values
-  if menu_option == 1 then
-    if btnp(⬆️) then menu_player_count = min(4, menu_player_count + 1) end
-    if btnp(⬇️) then menu_player_count = max(2, menu_player_count - 1) end
-  elseif menu_option == 2 then
-    if btnp(⬆️) then menu_stash_size = min(10, menu_stash_size + 1) end
-    if btnp(⬇️) then menu_stash_size = max(3, menu_stash_size - 1) end
-  end
-  -- Select option
-  if btnp(5) then
-    if menu_option == 3 then
-      -- Start game
-      player_count = menu_player_count
-      stash_count = menu_stash_size
-      N_PLAYERS = menu_player_count
-      STASH_SIZE = menu_stash_size
-      global_game_state = "in_game"
-      printh("Starting game from menu with P:"..player_count.." S:"..stash_count)
-    elseif menu_option == 4 then
-      -- Show how-to-play
-      global_game_state = "how_to_play"
-    end
-  end
-
-  -- Update what ui.draw_main_menu will show (it reads player_count, stash_count directly)
-  -- Or, pass menu_player_count, menu_stash_size, menu_option to draw_main_menu
-end
+-- This function is now in 6.ui.lua, but if you need overrides or specific logic here, keep it.
+-- For now, assuming 6.ui.lua handles menu updates.
+-- function _update_main_menu_logic()
+--   -- ... (logic moved to 6.ui.lua) ...
+-- end
 
 ------------------------------------------
 -- Game Specific Logic (Initialization, Update, Draw)
@@ -1399,6 +1443,11 @@ function init_game_properly()
     original_update_game_logic_func = function() end 
   end
 
+  -- Initialize timer
+  game_start_time = time() -- Assuming time() gives seconds or a consistent unit
+  remaining_time_seconds = (game_timer or 3) * 60 -- Convert minutes to seconds
+  printh("Timer started: " .. remaining_time_seconds .. " seconds.")
+
   printh("Game initialized with " .. N_PLAYERS .. " players and " .. STASH_SIZE .. " pieces each.")
 end
 
@@ -1413,6 +1462,18 @@ end
 
 function _draw_game_screen()
   cls(0) 
+
+  -- Draw timer
+  local minutes = flr(remaining_time_seconds / 60)
+  local seconds = flr(remaining_time_seconds % 60)
+  local seconds_str
+  if seconds < 10 then
+    seconds_str = "0" .. tostr(seconds)
+  else
+    seconds_str = tostr(seconds)
+  end
+  local timer_str = tostr(minutes) .. ":" .. seconds_str
+  print(timer_str, 128 - #timer_str * 4 - 5, 5, 7) -- Top-right, adjust x as needed
 
   if pieces then
     for piece_obj in all(pieces) do
