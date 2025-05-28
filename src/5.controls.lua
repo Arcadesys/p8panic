@@ -1,6 +1,7 @@
 -- Converted Controls Module for Multi-Cursor Support
 -- Handles player input and updates control-related game state for each cursor.
-
+--#globals player_manager cursors place_piece attempt_capture original_update_game_logic_func
+--#globals max min btn btnp
 -- Constants for control states (optional)
 local CSTATE_MOVE_SELECT = 0
 local CSTATE_ROTATE_PLACE = 1
@@ -12,7 +13,9 @@ function update_controls()
 
   -- Iterate through each player's cursor in the global 'cursors' table.
   for i, cur in ipairs(cursors) do
-    -- Pico-8 controller index is (i - 1).
+    local current_player_obj = player_manager.get_player(i)
+    if not current_player_obj then goto next_cursor_ctrl end
+
     if cur.control_state == CSTATE_MOVE_SELECT then
       -- Continuous movement with the d-pad.
       if btn(⬅️, i - 1) then cur.x = max(0, cur.x - cursor_speed) end
@@ -34,7 +37,12 @@ function update_controls()
       -- Initiate placement/rotation with Button X.
       if btnp(❎, i - 1) then
         if cur.pending_type == "capture" then
-          -- (Capture logic placeholder)
+          if attempt_capture(current_player_obj, cur) then
+            cur.control_state = CSTATE_COOLDOWN; cur.return_cooldown = 6
+            if original_update_game_logic_func then original_update_game_logic_func() end -- Recalculate immediately
+          else
+            printh("P" .. i .. ": Capture failed.")
+          end
         else
           cur.control_state = CSTATE_ROTATE_PLACE
           cur.pending_orientation = 0 -- Reset orientation when starting placement
@@ -54,16 +62,21 @@ function update_controls()
 
       -- Confirm placement with Button X.
       if btnp(❎, i - 1) then
-        local piece_to_place = {
-          owner = (player and player.colors and player.colors[i]) or 7,
+        local piece_params = {
+          owner_id = i, -- Use player index as owner_id
           type = cur.pending_type,
           position = { x = cur.x + 4, y = cur.y + 4 },
           orientation = cur.pending_orientation
         }
-        place_piece(piece_to_place)
-        cur.control_state = CSTATE_COOLDOWN
-        cur.return_cooldown = 6  -- 6-frame cooldown after placement
+        if place_piece(piece_params, current_player_obj) then
+          cur.control_state = CSTATE_COOLDOWN
+          cur.return_cooldown = 6  -- 6-frame cooldown after placement
+          if original_update_game_logic_func then original_update_game_logic_func() end -- Recalculate board state
+        else
+          printh("Placement failed for P" .. i)
+        end
       end
+
 
       -- Cancel placement with Button O.
       if btnp(🅾️, i - 1) then
@@ -79,8 +92,9 @@ function update_controls()
         cur.control_state = CSTATE_MOVE_SELECT
         cur.pending_orientation = 0
         cur.pending_type = "defender"
-        cur.pending_color = (player and player.ghost_colors and player.ghost_colors[i]) or 7
+        cur.pending_color = (current_player_obj and current_player_obj:get_ghost_color()) or 7
       end
     end
+    ::next_cursor_ctrl::
   end
 end

@@ -1,20 +1,20 @@
 -- src/5.piece.lua
 
 -- Forward declarations for metatables if needed
-local Piece = {}
+Piece = {}
 Piece.__index = Piece
 
-local Attacker = {}
+Attacker = {}
 Attacker.__index = Attacker
 setmetatable(Attacker, {__index = Piece}) -- Inherit from Piece
 
-local Defender = {}
+Defender = {}
 Defender.__index = Defender
 setmetatable(Defender, {__index = Piece}) -- Inherit from Piece
 
 -- Piece constants (can be moved from 0.init.lua)
-local DEFENDER_WIDTH = 8
-local DEFENDER_HEIGHT = 8
+DEFENDER_WIDTH = 8
+DEFENDER_HEIGHT = 8
 local ATTACKER_TRIANGLE_HEIGHT = 8
 local ATTACKER_TRIANGLE_BASE = 6
     -- local LASER_LEN = 60 -- This is globally defined in 0.init.lua as LASER_LEN and accessed via _G.LASER_LEN
