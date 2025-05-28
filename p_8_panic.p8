@@ -13,17 +13,20 @@ N_PLAYERS = 4 -- Initialize N_PLAYERS globally here
 cursors = {} -- Initialize cursors globally here
 CAPTURE_RADIUS_SQUARED = 64 -- Initialize CAPTURE_RADIUS_SQUARED globally here
 
--- Declare these here, they will be assigned in _init()
-original_update_game_logic_func = nil
-original_update_controls_func = nil
+-- Global game state
+global_game_state = "main_menu" -- "main_menu", "in_game", "game_over", etc.
+
+-- Global variables for menu settings (to be set by the menu via 7.main.lua)
+player_count = N_PLAYERS -- Default to current N_PLAYERS
+stash_count = STASH_SIZE  -- Default to current STASH_SIZE
 
 -------------------------------------------
 -- Helpers & Global Constants/Variables --
 -------------------------------------------
---#globals player_manager create_piece pieces LASER_LEN N_PLAYERS cursors CAPTURE_RADIUS_SQUARED
+--#globals player_manager create_piece pieces LASER_LEN N_PLAYERS cursors CAPTURE_RADIUS_SQUARED global_game_state player_count stash_count
 --#globals ray_segment_intersect attempt_capture -- Core helpers defined in this file
 --#globals update_controls score_pieces place_piece legal_placement -- Functions from modules
---#globals internal_update_game_logic original_update_game_logic_func original_update_controls_func
+--#globals internal_update_game_logic original_update_game_logic_func original_update_controls_func ui_handler -- ui_handler is now set in 7.main.lua
 
 -- CAPTURE_RADIUS_SQUARED = 64 -- (8*8) For capture proximity check -- Already defined above
 
@@ -40,11 +43,6 @@ function point_in_polygon(px, py, vertices)
   end
   return inside
 end
-
--- Global game state variables
--- pieces = {} -- Already defined above
--- N_PLAYERS = 4           -- Default number of players -- Already defined above
--- LASER_LEN = 60          -- Maximum laser beam length -- Already defined above
 
 -- Cached math functions
 local cos, sin = cos, sin
@@ -70,7 +68,6 @@ function ray_segment_intersect(ray_ox, ray_oy, ray_dx, ray_dy,
   return nil, nil, nil
 end
 
--- Moved attempt_capture here, before includes that use it (e.g., 3.controls.lua)
 function attempt_capture(player_obj, cursor)
   local player_id = player_obj.id
   for _, def_obj in ipairs(pieces) do
@@ -100,259 +97,36 @@ function attempt_capture(player_obj, cursor)
   return false
 end
 
--- All modules are loaded via Pico-8 tabs; remove #include directives
+-- All modules are loaded via Pico-8 tabs; #include directives are not used.
+-- Main Pico-8 functions (_init, _update, _draw) and their specific logic
+-- (e.g., init_game_properly, _update_main_menu, _draw_game)
+-- have been moved to src/7.main.lua.
 
--------------------------------------------
--- Multi-Cursor Support (one per player) --
--------------------------------------------
--- cursors table is initialized at the top
+-- This file now primarily serves to define global variables, constants,
+-- and core helper functions that are used across multiple modules.
 
--- Initialize cursors for N players; they spawn in different screen corners.
-function init_cursors(num_players)
-  local all_possible_spawn_points = {
-    {x = 4, y = 4},                -- P1: top-left
-    {x = 128 - 12, y = 4},           -- P2: top-right
-    {x = 4, y = 128 - 12},            -- P3: bottom-left
-    {x = 128 - 12, y = 128 - 12}     -- P4: bottom-right
-  }
+-- Example of a function that might have been wrapped, now handled in 7.main.lua
+-- if it needs wrapping. If it's a core game logic update that doesn't need
+-- state-based wrapping (like menu vs game), it could live here or in its own module.
+-- For now, assuming update_game_logic and update_controls are functions defined
+-- in other modules (e.g. 2.scoring.lua for game logic, 5.controls.lua for controls)
+-- and will be called by the main loop in 7.main.lua.
 
-  cursors = {} -- Clear existing cursors before re-initializing
+-- function internal_update_game_logic()
+--   if original_update_game_logic_func then
+--     original_update_game_logic_func()
+--   end
+--   -- Add any logic that should always run, regardless of game state, if any.
+--   -- Or, this function itself is the "original" if no other module defines `update_game_logic`.
+-- end
 
-  for i = 1, num_players do
-    local sp
-    if i <= #all_possible_spawn_points then
-      sp = all_possible_spawn_points[i]
-    else
-      printh("Warning: No spawn point defined for P" .. i .. ". Defaulting.")
-      sp = {x = 4 + (i-1)*10, y = 4} -- Simple fallback
-    end
-
-    local p_obj = player_manager.get_player(i)
-    cursors[i] = {
-      x = sp.x, y = sp.y,
-      spawn_x = sp.x, spawn_y = sp.y,
-      control_state = 0,       -- 0: Movement/Selection, 1: Rotation/Placement, 2: Cooldown/Return
-      pending_type = "defender",  -- "defender", "attacker", "capture"
-      pending_color = (p_obj and p_obj:get_ghost_color()) or 7,
-      pending_orientation = 0,
-      return_cooldown = 0,
-      color_select_idx = 1 -- For cycling stash colors during placement
-    }
-  end
-end
-
--- Game States
-GAME_STATE_MENU = 0
-GAME_STATE_PLAYING = 1
--- GAME_STATE_GAME_OVER = 2 -- Placeholder for future
-
-current_game_state = GAME_STATE_MENU -- Start in the menu
-
--- Forward declare for state-specific update/draw functions
--- local original_update_game_logic_func -- Now defined after includes
--- local original_update_controls_func -- Now defined after includes
-
--------------------------------------------
--- Game Logic & Main Loop Integration    --
--------------------------------------------
-function internal_update_game_logic()
-  for _, p_item in ipairs(pieces) do
-    if p_item.type == "defender" then
-      p_item.hits = 0
-      p_item.targeting_attackers = {}
-      p_item.state = "neutral"
-      p_item.captured_flag = false -- Reset captured flag
-    end
-  end
-  if score_pieces then score_pieces() else printh("Error: score_pieces is nil in internal_update_game_logic!") end
-end
-
-function go_to_state(new_state)
-  if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
-    pieces = {} -- Clear existing pieces
-    init_cursors(player_manager.get_player_count()) -- Cursors are initialized on game start
-    
-    for i=1, player_manager.get_player_count() do
-      local p = player_manager.get_player(i)
-      if p then 
-        p.score = 0
-        p.stash = {} 
-        p.stash[p:get_color()] = 6 
-      end
-    end
-    if original_update_game_logic_func then original_update_game_logic_func() end
-  end
-  current_game_state = new_state
-end
-
-
-function _init()
-  if not player_manager then
-    printh("ERROR: player_manager is NIL in _init() BEFORE init_players", true) -- Debug print
-  end
-  player_manager.init_players(N_PLAYERS) -- Initialize players
-  init_cursors(N_PLAYERS)               -- Initialize cursors for each player
-  
-  -- Assign function pointers here, after all tabs are loaded
-  original_update_game_logic_func = internal_update_game_logic
-  if update_controls then
-    original_update_controls_func = update_controls
-  else
-    printh("ERROR: update_controls is NIL in _init!", true)
-  end
-  if not score_pieces then
-     printh("ERROR: score_pieces is NIL in _init!", true)
-  end
-
-  go_to_state(GAME_STATE_PLAYING)       -- Immediately enter playing state so controls are active
-  if not player_manager then
-    printh("ERROR: player_manager is NIL in _init() AFTER init_players", true) -- Debug print
-  end
-  if not cursors then
-    printh("ERROR: cursors is NIL in _init()", true)
-  end
-  if not player_manager.get_player_count then
-     printh("ERROR: player_manager.get_player_count is NIL in _init()", true)
-  end
-  -- Cursors and game pieces initialized by go_to_state(GAME_STATE_PLAYING)
-  -- Start in menu state by default (current_game_state = GAME_STATE_MENU)
-end
-
-
-function update_menu_state()
-  -- Adjust stash size with left/right
-  if btnp(⬅️) then
-    STASH_SIZE = max(3, STASH_SIZE - 1)
-  elseif btnp(➡️) then
-    STASH_SIZE = min(10, STASH_SIZE + 1)
-  end
-  -- Start game
-  if btnp(❎) or btnp(🅾️) then
-    go_to_state(GAME_STATE_PLAYING)
-  end
-end
-
-function update_playing_state()
-  if original_update_controls_func then original_update_controls_func() else printh("Error: original_update_controls_func is nil!") end
-  if original_update_game_logic_func then original_update_game_logic_func() else printh("Error: original_update_game_logic_func is nil!") end
-end
-
-function _update()
-  if current_game_state == GAME_STATE_MENU then
-    update_menu_state()
-  elseif current_game_state == GAME_STATE_PLAYING then
-    if original_update_controls_func then 
-      original_update_controls_func() 
-    else 
-      printh("Error: original_update_controls_func is nil in _update!") 
-    end
-    if original_update_game_logic_func then 
-      original_update_game_logic_func() 
-    else 
-      printh("Error: original_update_game_logic_func is nil in _update!") 
-    end
-  end
-end
-
-
-function draw_menu_state()
-  print("P8PANIC", 50, 50, 7)
-  print("PRESS X OR O", 40, 70, 8)
-  print("TO START", 50, 80, 8)
-  print("STASH SIZE: "..STASH_SIZE, 36, 100, 11)
-  print("(\x8e/\x91 to set 3-10)", 24, 110, 6) -- ⬅️/➡️
-end
-
-function draw_playing_state_elements()
-  for _, piece_obj in ipairs(pieces) do
-    if piece_obj and piece_obj.draw then
-      piece_obj:draw()
-      -- debug: show number of attackers targeting this defender on-screen
-      if piece_obj.type == "defender" then
-        local count_to_display = piece_obj.dbg_target_count or 0 -- Use dbg_target_count, default to 0 if nil
-        -- print count above defender
-        print(count_to_display, piece_obj.position.x + 4, piece_obj.position.y - 8, 7)
-      end
-    end
-  end
-  
-  for i, cur in ipairs(cursors) do
-    local current_player_obj = player_manager.get_player(i)
-    if not current_player_obj then goto next_cursor_draw end -- Skip if no player object
-
-    -- In placement mode, use the selected color for the ghost piece
-    local cursor_draw_color = cur.pending_color or ((current_player_obj and current_player_obj:get_ghost_color()) or 7)
-
-    if cur.control_state == 0 or cur.control_state == 2 then
-      if cur.pending_type == "defender" then
-        rect(cur.x, cur.y, cur.x + 7, cur.y + 7, cursor_draw_color)
-      elseif cur.pending_type == "attacker" then
-        local cx, cy = cur.x + 4, cur.y + 4
-        line(cx + 4, cy, cx - 2, cy - 3, cursor_draw_color)
-        line(cx - 2, cy - 3, cx - 2, cy + 3, cursor_draw_color)
-        line(cx - 2, cy + 3, cx + 4, cy, cursor_draw_color)
-      elseif cur.pending_type == "capture" then
-        local cx, cy = cur.x + 4, cur.y + 4
-        circfill(cx,cy,3,cursor_draw_color) -- Changed capture cursor to a circle
-        -- line(cx - 2, cy, cx + 2, cy, cursor_draw_color)
-        -- line(cx, cy - 2, cx, cy + 2, cursor_draw_color)
-      end
-    elseif cur.control_state == 1 then
-      local ghost_params = {
-        owner_id = i, type = cur.pending_type,
-        position = { x = cur.x + 4, y = cur.y + 4 },
-        orientation = cur.pending_orientation
-      }
-      local ghost_piece_obj = create_piece(ghost_params)
-      if ghost_piece_obj then
-        ghost_piece_obj.is_ghost = true
-        ghost_piece_obj.ghost_color_override = cursor_draw_color -- Use the calculated cursor_draw_color
-        ghost_piece_obj:draw()
-      end
-    end
-    ::next_cursor_draw::
-  end
-
-  local margin = 2
-  local font_width = 4
-  local font_height = 5
-  for i=1, player_manager.get_player_count() do
-    local p_obj = player_manager.get_player(i)
-    if p_obj then
-      local score_txt = p_obj:get_score() .. ""
-      local p_color = p_obj:get_color()
-      -- Draw score in corner
-      local x, y = margin, margin
-      if i == 1 then x, y = margin, margin
-      elseif i == 2 then x, y = 128 - margin - #score_txt * font_width, margin
-      elseif i == 3 then x, y = margin, 128 - margin - font_height
-      elseif i == 4 then x, y = 128 - margin - #score_txt * font_width, 128 - margin - font_height
-      end
-      print(score_txt, x, y, p_color)
-      -- Draw stash below/above score, one color per line
-      local stash_y = y + font_height + 1
-      for color, count in pairs(p_obj.stash) do
-        if count > 0 then
-          print("["..count.."]", x, stash_y, color)
-          stash_y = stash_y + font_height
-        end
-      end
-    end
-  end
-end
-
-function _draw()
-  cls(0)
-  if current_game_state == GAME_STATE_MENU then
-    draw_menu_state()
-  elseif current_game_state == GAME_STATE_PLAYING then
-    draw_playing_state_elements()
-  end
-end
+-- Note: The original_update_game_logic_func and original_update_controls_func
+-- are now declared and managed within src/7.main.lua as they are part of the
+-- main loop's state management.
 -->8
--- src/4.player.lua
---#globals player_manager
---#globals player_manager
+-- src/1.player.lua (Corrected filename in comment)
+--#globals player_manager STASH_SIZE create_player Player -- Added STASH_SIZE, create_player, Player to globals for clarity if used by other files directly.
+-- Ensure player_manager is treated as the global table defined in 0.init.lua
 
 local Player = {}
 Player.__index = Player -- For metatable inheritance
@@ -366,8 +140,9 @@ function Player:new(id, initial_score, color, ghost_color) -- Added initial_scor
     ghost_color = ghost_color,
     stash = {} -- Initialize stash as an empty table
   }
-  -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player's own color
-  instance.stash[color] = STASH_SIZE or 6
+  -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player\'s own color
+  -- STASH_SIZE should be a global variable accessible here, typically set by menu/game init.
+  instance.stash[color] = STASH_SIZE or 6 -- Access global STASH_SIZE explicitly
   setmetatable(instance, self)
   return instance
 end
@@ -420,10 +195,11 @@ function Player:use_piece_from_stash(piece_color)
   return false
 end
 
--- Module-level table to hold player-related functions and data
-player_manager = {}
+-- Module-level table player_manager is already defined globally in 0.init.lua
+-- We are adding functions to it.
+-- REMOVED: player_manager = {} -- This was overwriting the global instance.
 
-player_manager.colors = { -- Changed : to .
+player_manager.colors = {
   [1] = 12, -- Player 1: Light Blue
   [2] = 8,  -- Player 2: Red (Pico-8 color 8 is red)
   [3] = 11, -- Player 3: Green
@@ -431,7 +207,7 @@ player_manager.colors = { -- Changed : to .
 }
 
 -- Ghost/Cursor colors
-player_manager.ghost_colors = { -- Added ghost_colors table
+player_manager.ghost_colors = {
   [1] = 1,  -- Player 1: Dark Blue (Pico-8 color 1)
   [2] = 9,  -- Player 2: Orange (Pico-8 color 9)
   [3] = 3,  -- Player 3: Dark Green (Pico-8 color 3)
@@ -452,23 +228,28 @@ function player_manager.init_players(num_players)
 
   for i = 1, num_players do
     local color = player_manager.colors[i]
-    local ghost_color = player_manager.ghost_colors[i] -- Get ghost_color
+    local ghost_color = player_manager.ghost_colors[i]
     if not color then
       printh("Warning: No color defined for player " .. i .. ". Defaulting to white (7).")
-      color = 7 -- Default to white if color not found
+      color = 7
     end
-    if not ghost_color then -- Check for ghost_color
+    if not ghost_color then
       printh("Warning: No ghost color defined for player " .. i .. ". Defaulting to dark blue (1).")
-      ghost_color = 1 -- Default ghost_color
+      ghost_color = 1
     end
-    player_manager.current_players[i] = Player:new(i, 0, color, ghost_color) -- Pass ghost_color to constructor
+    -- Player:new uses global STASH_SIZE, which should be set before this by menu/game init
+    player_manager.current_players[i] = Player:new(i, 0, color, ghost_color)
   end
   
   printh("Initialized " .. num_players .. " players.")
 end
 
--- Function to get a player's instance
+-- Function to get a player\'s instance
 function player_manager.get_player(player_id)
+  if not player_manager.current_players then
+     printh("Accessing player_manager.current_players before init_players?")
+     return nil
+  end
   return player_manager.current_players[player_id]
 end
 
@@ -494,28 +275,12 @@ end
 
 -- Function to get the current number of initialized players
 function player_manager.get_player_count()
+  if not player_manager.current_players then return 0 end
   return #player_manager.current_players
 end
 
--- Example Usage (for testing within this file, remove or comment out for production)
--- player_manager.init_players(2)
--- local p1 = player_manager.get_player(1)
--- if p1 then
---   printh("Player 1 ID: " .. p1.id)
---   printh("Player 1 Color: " .. p1:get_color())
---   printh("Player 1 Ghost Color: " .. p1:get_ghost_color()) -- Test ghost color
---   p1:add_score(10)
---   printh("Player 1 Score: " .. p1:get_score())
--- end
-
--- local p2_color = player_manager.get_player_color(2)
--- printh("Player 2 Color (direct): " .. (p2_color or "not found"))
--- local p2_ghost_color = player_manager.get_player_ghost_color(2)
--- printh("Player 2 Ghost Color (direct): " .. (p2_ghost_color or "not found"))
-
-
--- return player_manager -- Old return statement
--- player_manager is global by default via the above declaration
+-- Expose Player class if other modules need to create players or check type (optional)
+-- Player = Player
 -->8
 -- src/2.scoring.lua
 -- Scoring Module
@@ -1145,47 +910,368 @@ function update_controls()
     ::next_cursor_ctrl::
   end
 end
-__gfx__
-00000000aaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9999999999999999999999a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9444444444444444444449a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9400000000000000000049a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9444444444444444444449a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000a9999999999999999999999a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000aaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-__map__
-0102020202020202020202020202020300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1100000000000000000000000000001300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-2122222222222222222222222222222300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+-->8
+-- src/6.ui.lua
+-- This file will contain functions for drawing UI elements,
+-- including the main menu and in-game HUD.
+
+--#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count
+
+ui = {}
+
+function ui.draw_main_menu()
+  cls(0) -- Clear screen with black
+  
+  -- Simple title and instruction
+  print("P8PANIC", 48, 40, 7) -- White text
+  print("PRESS (X) TO START", 30, 60, 7) -- White text
+  
+  -- Placeholder for future menu options
+  -- print("Players: " .. player_count, 10, 80, 7)
+  -- print("Stash: " .. stash_count, 10, 90, 7)
+end
+
+function ui.draw_game_hud()
+  -- Draw player info/scores
+  for i = 1, N_PLAYERS do
+    local p = player_manager[i]
+    if p then
+      local status_text = "P" .. i .. ": " .. p.score .. " pts"
+      if p.captured_pieces_count > 0 then
+        status_text = status_text .. " Cap: " .. p.captured_pieces_count
+      end
+      if p.stash == 0 and p.captured_pieces_count == 0 then
+         status_text = status_text .. " (EMPTY)"
+      end
+      print(status_text, 5, 5 + (i-1)*8, p.color_id)
+
+      -- Indicate current cursor mode for player 1 (P0 in btnp) for debugging/testing
+      if i == 1 and cursors[1] then
+          print("P1 Mode: "..cursors[1].mode, 60, 118, 7)
+      end
+    end
+  end
+  
+  -- Display game timer or other global info (example)
+  -- print("Time: " .. flr(game_timer), 90, 5, 7)
+end
+-->8
+-- src/7.cursor.lua
+--#eval player_manager=player_manager,rectfill=rectfill,circfill=circfill,line=line,cos=cos,sin=sin,print=print,create_piece=create_piece
+
+-- Default cursor properties
+local default_cursor_props = {
+  control_state = 0, -- CSTATE_MOVE_SELECT (as defined in 5.controls.lua)
+  pending_type = "defender",
+  pending_orientation = 0,
+  color_select_idx = 1,
+  return_cooldown = 0,
+  -- spawn_x, spawn_y will be set by create_cursor
+  -- pending_color will be set based on player or selection
+}
+
+function create_cursor(player_id, initial_x, initial_y)
+  local p_ghost_color = 7 -- Default color if player_manager or method is missing
+  if player_manager and player_manager.get_player_ghost_color then
+    local player = player_manager.get_player(player_id) -- Get the player object first
+    if player and player.get_ghost_color then
+      p_ghost_color = player:get_ghost_color()
+    elseif player_manager.get_player_ghost_color then -- Fallback to old direct method if exists
+      p_ghost_color = player_manager.get_player_ghost_color(player_id)
+    else
+      printh("Warning: Could not get ghost color for P"..player_id)
+    end
+  else
+    printh("Warning: player_manager or get_player_ghost_color not available for cursor.")
+  end
+  
+  local cur = {
+    id = player_id,
+    x = initial_x,
+    y = initial_y,
+    spawn_x = initial_x, -- Store spawn position
+    spawn_y = initial_y,
+    
+    -- Initialize properties from defaults
+    control_state = default_cursor_props.control_state,
+    pending_type = default_cursor_props.pending_type,
+    pending_orientation = default_cursor_props.pending_orientation,
+    pending_color = p_ghost_color, -- Default to player's ghost color
+    color_select_idx = default_cursor_props.color_select_idx,
+    return_cooldown = default_cursor_props.return_cooldown,
+
+    draw = function(self)
+      -- Placeholder cursor drawing: a small rectangle
+      -- rectfill(self.x, self.y, self.x + 1, self.y + 1, self.pending_color) -- Keep or remove as desired
+
+      if self.pending_type == "attacker" or self.pending_type == "defender" then
+        -- Draw ghost piece
+        local ghost_piece_params = {
+          owner_id = self.id,
+          type = self.pending_type,
+          position = { x = self.x + 4, y = self.y + 4 }, -- Centered on cursor
+          orientation = self.pending_orientation,
+          color = self.pending_color,
+          is_ghost = true -- Add a flag to indicate this is a ghost piece for drawing
+        }
+        -- Assuming create_piece returns a piece object with a draw method
+        local ghost_piece = create_piece(ghost_piece_params)
+        if ghost_piece and ghost_piece.draw then
+          ghost_piece:draw()
+        end
+      elseif self.pending_type == "capture" then
+        -- Render crosshair
+        local crosshair_color = self.pending_color
+        if player_manager and player_manager.get_player then
+            local p = player_manager.get_player(self.id)
+            if p and p.get_color then
+                crosshair_color = p:get_color()
+            end
+        end
+        local cx, cy = self.x + 4, self.y + 4 -- Center of the 8x8 cursor grid
+        local arm_len = 3
+        -- Horizontal line
+        line(cx - arm_len, cy, cx + arm_len, cy, crosshair_color)
+        -- Vertical line
+        line(cx, cy - arm_len, cx, cy + arm_len, crosshair_color)
+        -- Optional: small circle in the middle
+        -- circfill(cx, cy, 1, crosshair_color)
+      end
+
+      -- If in rotation/placement mode, show pending piece outline (simplified)
+      -- This might be redundant if ghost piece is already drawn above
+      -- if self.control_state == 1 then -- CSTATE_ROTATE_PLACE
+      --    -- This would be more complex, showing the actual piece shape and orientation
+      --    line(self.x+4, self.y+4, self.x+4 + cos(self.pending_orientation)*8, self.y+4 + sin(self.pending_orientation)*8, self.pending_color)
+      -- end
+    end
+  }
+  return cur
+end
+
+-- PICO-8 automatically makes functions global if they are not declared local
+-- So, create_cursor will be global by default.
+-->8
+-- src/7.main.lua
+-- Main game loop functions (_init, _update, _draw)
+
+--#globals player_manager pieces cursors ui N_PLAYERS STASH_SIZE global_game_state
+--#globals menu_option menu_player_count menu_stash_size player_count stash_count
+--#globals create_player create_cursor internal_update_game_logic update_game_logic update_controls
+--#globals original_update_game_logic_func original_update_controls_func
+--#globals printh all cls btnp menuitem print
+
+-- Ensure ui_handler is assigned from the global ui table from 6.ui.lua
+local ui_handler -- local to this file, assigned in _init
+
+------------------------------------------
+-- Main Pico-8 Functions
+------------------------------------------
+function _init()
+  -- Initialize engine-level managers/tables if they aren\'t already by other files
+  -- (player_manager, pieces, cursors are expected to be globals defined elsewhere or initialized here)
+  -- player_manager should be globally defined by 0.init.lua
+  -- pieces should be globally defined by 0.init.lua
+  -- cursors should be globally defined by 0.init.lua
+  
+  if player_manager == nil then 
+    printh("CRITICAL: player_manager is nil in _init of 7.main.lua!")
+    player_manager = {} -- Fallback, but indicates load order issue
+  end
+  if pieces == nil then pieces = {} end
+  if cursors == nil then cursors = {} end
+  
+  if ui then
+    ui_handler = ui
+  else 
+    printh("Warning: global 'ui' (from 6.ui.lua) not found in _init. UI might not draw.")
+    ui_handler = {
+      draw_main_menu = function() print("NO UI - MAIN MENU", 40,60,8) end,
+      draw_game_hud = function() print("NO UI - GAME HUD", 40,60,8) end
+    }
+  end
+
+  menuitem(1, "Return to Main Menu", function()
+    global_game_state = "main_menu" 
+    printh("Returning to main menu via pause menu...")
+    _init_main_menu_state() 
+  end)
+
+  if global_game_state == "main_menu" then
+    _init_main_menu_state()
+  else
+    -- If starting directly in game (e.g. for testing, by changing default global_game_state)
+    -- N_PLAYERS and STASH_SIZE should be their default values from 0.init.lua
+    player_count = N_PLAYERS
+    stash_count = STASH_SIZE
+    init_game_properly()
+  end
+end
+
+function _update()
+  if global_game_state == "main_menu" then
+    _update_main_menu_logic()
+    if global_game_state == "in_game" then
+        -- N_PLAYERS and STASH_SIZE are set by _update_main_menu_logic
+        init_game_properly() 
+    end
+  elseif global_game_state == "in_game" then
+    _update_game_logic()
+  end
+end
+
+function _draw()
+  if global_game_state == "main_menu" then
+    if ui_handler and ui_handler.draw_main_menu then
+      ui_handler.draw_main_menu()
+    else
+      cls(0) print("Error: draw_main_menu not found!", 20,60,8)
+    end
+  elseif global_game_state == "in_game" then
+    _draw_game_screen()
+  end
+end
+
+------------------------------------------
+-- Menu Specific Logic (Initialization & Update)
+------------------------------------------
+function _init_main_menu_state()
+  menu_option = 1 
+  -- Use global N_PLAYERS and STASH_SIZE as defaults for the menu
+  menu_player_count = N_PLAYERS 
+  menu_stash_size = STASH_SIZE   
+  printh("Main menu state initialized: P=" .. menu_player_count .. " S=" .. menu_stash_size)
+end
+
+function _update_main_menu_logic()
+  if btnp(5) then -- Player 0, Button 5 (X button / keyboard X or V)
+    -- Set game settings from menu choices
+    player_count = menu_player_count 
+    stash_count = menu_stash_size     
+    N_PLAYERS = menu_player_count -- Update global N_PLAYERS for game init
+    STASH_SIZE = menu_stash_size -- Update global STASH_SIZE for game init
+    
+    global_game_state = "in_game" 
+    printh("Starting game from menu with P:"..player_count.." S:"..stash_count)
+  end
+  -- Add d-pad logic to change menu_player_count and menu_stash_size here
+  -- For example:
+  if menu_option == 1 then -- Editing player count
+    if btnp(⬆️) then menu_player_count = min(4, menu_player_count + 1) end
+    if btnp(⬇️) then menu_player_count = max(1, menu_player_count - 1) end
+    if btnp(➡️) or btnp(🅾️) then menu_option = 2 end -- Cycle to stash size
+  elseif menu_option == 2 then -- Editing stash size
+    if btnp(⬆️) then menu_stash_size = min(10, menu_stash_size + 1) end
+    if btnp(⬇️) then menu_stash_size = max(3, menu_stash_size - 1) end
+    if btnp(⬅️) then menu_option = 1 end -- Cycle back to player count
+    if btnp(🅾️) then menu_option = 1 end -- Cycle to player count (or a "Start" option if added)
+  end
+
+  -- Update what ui.draw_main_menu will show (it reads player_count, stash_count directly)
+  -- Or, pass menu_player_count, menu_stash_size, menu_option to draw_main_menu
+end
+
+------------------------------------------
+-- Game Specific Logic (Initialization, Update, Draw)
+------------------------------------------
+function init_game_properly()
+  printh("init_game_properly: N_PLAYERS="..N_PLAYERS..", STASH_SIZE="..STASH_SIZE)
+
+  if player_manager and player_manager.init_players then
+    player_manager.init_players(N_PLAYERS) 
+  else
+    printh("CRITICAL Error: player_manager.init_players not found! Player module likely failed.")
+    -- Minimal fallback to prevent immediate crash, but game won\'t be right.
+    player_manager = player_manager or {} -- Ensure it exists
+    player_manager.current_players = {}
+    player_manager.get_player = function(id) return player_manager.current_players[id] end
+    -- This fallback won\'t have proper player objects from Player:new
+  end
+
+  pieces = {} 
+  cursors = {} 
+  for i = 1, N_PLAYERS do
+    -- create_cursor should be a global function from its respective module
+    if create_cursor then
+      cursors[i] = create_cursor(i, 60 + i * 10, 60) 
+    else
+      printh("Error: create_cursor function not found!")
+      -- Corrected dummy cursor draw function
+      cursors[i] = { 
+        id=i, 
+        x=60+i*10, 
+        y=60, 
+        draw=function(self) print("C"..self.id,self.x,self.y,7) end 
+      } -- Dummy cursor
+    end
+  end
+
+  -- Assign control functions
+  if update_controls then 
+    original_update_controls_func = update_controls
+    printh("Assigned original_update_controls_func from global update_controls.")
+  else
+    printh("Warning: global function 'update_controls' (from 5.controls.lua) not found. Controls might not work.")
+    original_update_controls_func = function() end 
+  end
+  
+  -- Assign game logic update function (example: from 2.scoring.lua or similar)
+  -- Assuming the main game logic update function is named 'update_game_state' or similar from another module
+  if update_game_state then -- Example name, adjust if your game logic func is different
+    original_update_game_logic_func = update_game_state 
+    printh("Assigned original_update_game_logic_func from global update_game_state.")
+  else
+    printh("Warning: global 'update_game_state' (core game logic) not found. Game logic may not run.")
+    original_update_game_logic_func = function() end 
+  end
+
+  printh("Game initialized with " .. N_PLAYERS .. " players and " .. STASH_SIZE .. " pieces each.")
+end
+
+function _update_game_logic()
+  if original_update_game_logic_func then
+    original_update_game_logic_func() 
+  end
+  if original_update_controls_func then
+    original_update_controls_func() 
+  end
+end
+
+function _draw_game_screen()
+  cls(0) 
+
+  if pieces then
+    for piece_obj in all(pieces) do
+      if piece_obj and piece_obj.draw then
+        piece_obj:draw()
+      end
+    end
+  end
+
+  if cursors then
+    for _, cursor_obj in pairs(cursors) do -- Use pairs for sparse arrays or non-numeric keys
+      if cursor_obj and cursor_obj.draw then
+        cursor_obj:draw()
+      end
+    end
+  end
+
+  if ui_handler and ui_handler.draw_game_hud then
+    ui_handler.draw_game_hud()
+  else
+    print("Error: ui_handler.draw_game_hud not found",0,0,7)
+  end
+end
+
+-- Ensure create_player is globally available if Player:new is not directly exposed
+-- and player_manager.init_players relies on a global create_player
+-- This is usually defined in 1.player.lua or similar.
+-- If Player:new is used directly by player_manager.init_players, this isn\'t needed here.
+-- function create_player(id, stash_size_val) -- Example, ensure this matches actual create_player
+--   if Player and Player.new then
+--     return Player:new(id, 0, player_manager.colors[id], player_manager.ghost_colors[id])
+--   end
+--   printh("Error: Player or Player:new not found for create_player")
+--   return {id=id, score=0, color=7, stash={}} -- Dummy
+-- end
 

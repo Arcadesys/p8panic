@@ -1,6 +1,6 @@
--- src/4.player.lua
---#globals player_manager
---#globals player_manager
+-- src/1.player.lua (Corrected filename in comment)
+--#globals player_manager STASH_SIZE create_player Player -- Added STASH_SIZE, create_player, Player to globals for clarity if used by other files directly.
+-- Ensure player_manager is treated as the global table defined in 0.init.lua
 
 local Player = {}
 Player.__index = Player -- For metatable inheritance
@@ -14,8 +14,9 @@ function Player:new(id, initial_score, color, ghost_color) -- Added initial_scor
     ghost_color = ghost_color,
     stash = {} -- Initialize stash as an empty table
   }
-  -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player's own color
-  instance.stash[color] = STASH_SIZE or 6
+  -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player\'s own color
+  -- STASH_SIZE should be a global variable accessible here, typically set by menu/game init.
+  instance.stash[color] = STASH_SIZE or 6 -- Access global STASH_SIZE explicitly
   setmetatable(instance, self)
   return instance
 end
@@ -68,10 +69,11 @@ function Player:use_piece_from_stash(piece_color)
   return false
 end
 
--- Module-level table to hold player-related functions and data
-player_manager = {}
+-- Module-level table player_manager is already defined globally in 0.init.lua
+-- We are adding functions to it.
+-- REMOVED: player_manager = {} -- This was overwriting the global instance.
 
-player_manager.colors = { -- Changed : to .
+player_manager.colors = {
   [1] = 12, -- Player 1: Light Blue
   [2] = 8,  -- Player 2: Red (Pico-8 color 8 is red)
   [3] = 11, -- Player 3: Green
@@ -79,7 +81,7 @@ player_manager.colors = { -- Changed : to .
 }
 
 -- Ghost/Cursor colors
-player_manager.ghost_colors = { -- Added ghost_colors table
+player_manager.ghost_colors = {
   [1] = 1,  -- Player 1: Dark Blue (Pico-8 color 1)
   [2] = 9,  -- Player 2: Orange (Pico-8 color 9)
   [3] = 3,  -- Player 3: Dark Green (Pico-8 color 3)
@@ -100,23 +102,28 @@ function player_manager.init_players(num_players)
 
   for i = 1, num_players do
     local color = player_manager.colors[i]
-    local ghost_color = player_manager.ghost_colors[i] -- Get ghost_color
+    local ghost_color = player_manager.ghost_colors[i]
     if not color then
       printh("Warning: No color defined for player " .. i .. ". Defaulting to white (7).")
-      color = 7 -- Default to white if color not found
+      color = 7
     end
-    if not ghost_color then -- Check for ghost_color
+    if not ghost_color then
       printh("Warning: No ghost color defined for player " .. i .. ". Defaulting to dark blue (1).")
-      ghost_color = 1 -- Default ghost_color
+      ghost_color = 1
     end
-    player_manager.current_players[i] = Player:new(i, 0, color, ghost_color) -- Pass ghost_color to constructor
+    -- Player:new uses global STASH_SIZE, which should be set before this by menu/game init
+    player_manager.current_players[i] = Player:new(i, 0, color, ghost_color)
   end
   
   printh("Initialized " .. num_players .. " players.")
 end
 
--- Function to get a player's instance
+-- Function to get a player\'s instance
 function player_manager.get_player(player_id)
+  if not player_manager.current_players then
+     printh("Accessing player_manager.current_players before init_players?")
+     return nil
+  end
   return player_manager.current_players[player_id]
 end
 
@@ -142,25 +149,9 @@ end
 
 -- Function to get the current number of initialized players
 function player_manager.get_player_count()
+  if not player_manager.current_players then return 0 end
   return #player_manager.current_players
 end
 
--- Example Usage (for testing within this file, remove or comment out for production)
--- player_manager.init_players(2)
--- local p1 = player_manager.get_player(1)
--- if p1 then
---   printh("Player 1 ID: " .. p1.id)
---   printh("Player 1 Color: " .. p1:get_color())
---   printh("Player 1 Ghost Color: " .. p1:get_ghost_color()) -- Test ghost color
---   p1:add_score(10)
---   printh("Player 1 Score: " .. p1:get_score())
--- end
-
--- local p2_color = player_manager.get_player_color(2)
--- printh("Player 2 Color (direct): " .. (p2_color or "not found"))
--- local p2_ghost_color = player_manager.get_player_ghost_color(2)
--- printh("Player 2 Ghost Color (direct): " .. (p2_ghost_color or "not found"))
-
-
--- return player_manager -- Old return statement
--- player_manager is global by default via the above declaration
+-- Expose Player class if other modules need to create players or check type (optional)
+-- Player = Player
