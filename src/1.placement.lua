@@ -1,29 +1,9 @@
 -- SECTION 4: Placement Module
 function legal_placement(piece) -- Made global by removing 'local'
-  local w,h=8,8
-  local th, tb = 8,6
+  -- Dimensions are now sourced from global vars used by get_piece_draw_vertices
   local bw,bh=128,128 
   local function vec_sub(a,b) return {x=a.x-b.x, y=a.y-b.y} end
   local function vec_dot(a,b) return a.x*b.x+a.y*b.y end
-
-  local function get_rot(p)
-    local o,pv={},{}
-    local cx,cy=p.position.x,p.position.y
-    local lc={}
-    if p.type=="attacker" then
-      add(lc,{x=th/2,y=0}); add(lc,{x=-th/2,y=tb/2}); add(lc,{x=-th/2,y=-tb/2})
-    else
-      local hw,hh=w/2,h/2
-      add(lc,{x=-hw,y=-hh});add(lc,{x=hw,y=-hh})
-      add(lc,{x=hw,y=hh}); add(lc,{x=-hw,y=hh})
-    end
-    for c in all(lc) do
-      local rx=c.x*cos(p.orientation)-c.y*sin(p.orientation)
-      local ry=c.x*sin(p.orientation)+c.y*cos(p.orientation)
-      add(pv,{x=cx+rx,y=cy+ry})
-    end
-    return pv
-  end
 
   local function project(vs,ax)
     local mn,mx=vec_dot(vs[1],ax),vec_dot(vs[1],ax)
@@ -50,17 +30,16 @@ function legal_placement(piece) -- Made global by removing 'local'
   end
 
   -- 1. bounds
-  local corners=get_rot(piece)
+  local corners=get_piece_draw_vertices(piece) -- Use global helper
   for c in all(corners) do
     if c.x<0 or c.x>bw or c.y<0 or c.y>bh then return false end
   end
 
   -- 2. collision
-  local piece_corners = get_rot(piece) -- Cache rotated vertices of the current piece
+  local piece_corners = get_piece_draw_vertices(piece) -- Use global helper
   if pieces then
     for _, ep in ipairs(pieces) do -- Use ipairs for dense, 1-indexed array
-      -- The check 'ep~=piece' is removed as 'piece' is not in 'pieces' table yet during this call.
-      local ep_corners = get_rot(ep)
+      local ep_corners = get_piece_draw_vertices(ep) -- Use global helper
       
       local combined_axes = {}
       for ax_piece in all(get_axes(piece_corners)) do add(combined_axes, ax_piece) end
@@ -98,7 +77,7 @@ function legal_placement(piece) -- Made global by removing 'local'
     if pieces then -- Ensure pieces table exists
       for _, ep_val in ipairs(pieces) do -- Use ipairs for dense, 1-indexed array
         if ep_val.type == "defender" then
-          local defender_corners = get_rot(ep_val) -- Get rotated corners of the existing defender
+          local defender_corners = get_piece_draw_vertices(ep_val) -- Use global helper
           for j = 1, #defender_corners do
             local k = (j % #defender_corners) + 1
             local x1, y1 = defender_corners[j].x, defender_corners[j].y
