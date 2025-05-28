@@ -53,22 +53,18 @@ function score_pieces()
               local attacker_player = player_manager.get_player(attacker_obj.owner_id)
               local defender_player = player_manager.get_player(defender_obj.owner_id)
 
-              if defender_obj.hits == 2 then
-                defender_obj.state = "unsuccessful" -- Defender is hit, but not overcharged
-                if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
-                  attacker_player:add_score(1)
-                end
-              elseif defender_obj.hits >= 3 then -- Changed to >= 3
-                defender_obj.state = "overcharged"
-                if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
-                  -- Score for the hit
-                  attacker_player:add_score(1)
-                  -- Defender is now overcharged. The defender\'s owner can use \'capture\' mode
-                  -- to capture attackers targeting this defender. The defender itself is not
-                  -- removed by this interaction, nor does the attacker\'s player capture the defender\'s color.
-                end
-              elseif defender_obj.hits == 1 then
-                defender_obj.state = "successful" -- Hit once, still neutral
+              -- Award score to attacker if they hit an opponent's defender
+              if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
+                attacker_player:add_score(1)
+              end
+
+              -- Update defender state based on total hits
+              if defender_obj.hits == 1 then
+                defender_obj.state = "successful" -- Hit once
+              elseif defender_obj.hits == 2 then
+                defender_obj.state = "unsuccessful" -- Defender is hit twice
+              elseif defender_obj.hits >= 3 then
+                defender_obj.state = "overcharged" -- Defender is hit three or more times
               end
               -- Only count one hit per attacker-defender pair, then stop checking other segments
               break

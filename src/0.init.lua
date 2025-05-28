@@ -18,7 +18,7 @@ original_update_controls_func = nil
 -------------------------------------------
 --#globals player_manager create_piece pieces LASER_LEN N_PLAYERS cursors CAPTURE_RADIUS_SQUARED
 --#globals ray_segment_intersect attempt_capture -- Core helpers defined in this file
---#globals update_controls score_attackers place_piece legal_placement -- Functions from modules
+--#globals update_controls score_pieces place_piece legal_placement -- Functions from modules
 --#globals internal_update_game_logic original_update_game_logic_func original_update_controls_func
 
 -- CAPTURE_RADIUS_SQUARED = 64 -- (8*8) For capture proximity check -- Already defined above
@@ -159,7 +159,7 @@ function internal_update_game_logic()
       p_item.captured_flag = false -- Reset captured flag
     end
   end
-  if score_attackers then score_attackers() else printh("Error: score_attackers is nil in internal_update_game_logic!") end
+  if score_pieces then score_pieces() else printh("Error: score_pieces is nil in internal_update_game_logic!") end
 end
 
 function go_to_state(new_state)
@@ -195,8 +195,8 @@ function _init()
   else
     printh("ERROR: update_controls is NIL in _init!", true)
   end
-  if not score_attackers then
-     printh("ERROR: score_attackers is NIL in _init!", true)
+  if not score_pieces then
+     printh("ERROR: score_pieces is NIL in _init!", true)
   end
 
   go_to_state(GAME_STATE_PLAYING)       -- Immediately enter playing state so controls are active
@@ -253,10 +253,9 @@ function draw_playing_state_elements()
       piece_obj:draw()
       -- debug: show number of attackers targeting this defender on-screen
       if piece_obj.type == "defender" then
-        local count = 0
-        if piece_obj.targeting_attackers then count = #piece_obj.targeting_attackers end
+        local count_to_display = piece_obj.dbg_target_count or 0 -- Use dbg_target_count, default to 0 if nil
         -- print count above defender
-        print(count, piece_obj.position.x + 4, piece_obj.position.y - 8, 7)
+        print(count_to_display, piece_obj.position.x + 4, piece_obj.position.y - 8, 7)
       end
     end
   end
