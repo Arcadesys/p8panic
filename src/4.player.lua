@@ -1,4 +1,6 @@
 -- src/4.player.lua
+--#globals player_manager
+--#globals player_manager
 
 local Player = {}
 Player.__index = Player -- For metatable inheritance
@@ -15,7 +17,6 @@ function Player:new(id, initial_score, color, ghost_color) -- Added initial_scor
   -- Initialize stash with 6 pieces of the player's own color
   instance.stash[color] = 6 
   setmetatable(instance, self)
-  self.__index = self
   return instance
 end
 
@@ -68,7 +69,7 @@ function Player:use_piece_from_stash(piece_color)
 end
 
 -- Module-level table to hold player-related functions and data
-local player_manager = {}
+player_manager = {}
 
 player_manager.colors = { -- Changed : to .
   [1] = 12, -- Player 1: Light Blue
@@ -139,6 +140,11 @@ function player_manager.get_player_ghost_color(player_id)
   end
 end
 
+-- Function to get the current number of initialized players
+function player_manager.get_player_count()
+  return #player_manager.current_players
+end
+
 -- Example Usage (for testing within this file, remove or comment out for production)
 -- player_manager.init_players(2)
 -- local p1 = player_manager.get_player(1)
@@ -157,4 +163,4 @@ end
 
 
 -- return player_manager -- Old return statement
-_G.player_manager = player_manager -- Make player_manager globally accessible
+-- player_manager is global by default via the above declaration

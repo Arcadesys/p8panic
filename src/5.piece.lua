@@ -17,7 +17,7 @@ local DEFENDER_WIDTH = 8
 local DEFENDER_HEIGHT = 8
 local ATTACKER_TRIANGLE_HEIGHT = 8
 local ATTACKER_TRIANGLE_BASE = 6
--- local LASER_LEN = 60 -- Global LASER_LEN from 0.init.lua will be used
+    -- local LASER_LEN = 60 -- This is globally defined in 0.init.lua as LASER_LEN and accessed via _G.LASER_LEN
 
 -- Cached math functions
 local cos, sin = cos, sin
@@ -41,7 +41,7 @@ function Piece:get_color()
     return self.ghost_color_override
   end
   if self.owner_id then
-    local owner_player = player_manager.get_player(self.owner_id) 
+    local owner_player = player_manager.get_player(self.owner_id)
     if owner_player then
       return owner_player:get_color()
     end
@@ -97,7 +97,6 @@ end
 function Attacker:new(o)
   o = o or {}
   o.type = "attacker"
-  o.is_currently_scoring = false -- Initialize scoring flag
   -- Attacker-specific initializations
   return Piece.new(self, o) -- Call base constructor
 end
@@ -114,22 +113,22 @@ function Attacker:draw()
   local dir_x = cos(self.orientation)
   local dir_y = sin(self.orientation)
   local laser_color = self:get_color() -- Default laser color
-  local laser_end_x = apex.x + dir_x * LASER_LEN 
-  local laser_end_y = apex.y + dir_y * LASER_LEN 
-  local closest_hit_t = LASER_LEN 
+  local laser_end_x = apex.x + dir_x * LASER_LEN
+  local laser_end_y = apex.y + dir_y * LASER_LEN
+  local closest_hit_t = LASER_LEN
 
   local hit_defender_state = nil
 
   -- Check for intersections with all defenders
-  if pieces then 
-    for _, other_piece in ipairs(pieces) do 
+  if pieces then
+    for _, other_piece in ipairs(pieces) do
       if other_piece.type == "defender" then
         local def_corners = other_piece:get_draw_vertices()
         for j = 1, #def_corners do
-          local k_idx = (j % #def_corners) + 1
-          local ix, iy, t = ray_segment_intersect( 
+          local k = (j % #def_corners) + 1
+          local ix, iy, t = ray_segment_intersect(
             apex.x, apex.y, dir_x, dir_y,
-            def_corners[j].x, def_corners[j].y, def_corners[k_idx].x, def_corners[k_idx].y
+            def_corners[j].x, def_corners[j].y, def_corners[k].x, def_corners[k].y
           )
           if t and t >= 0 and t < closest_hit_t then
             closest_hit_t = t
@@ -185,10 +184,6 @@ function Attacker:draw()
   end
 end
 
-function Attacker:is_scoring()
-  return self.is_currently_scoring or false
-end
-
 -- Defender methods
 function Defender:new(o)
   o = o or {}
@@ -229,7 +224,7 @@ end
 
 -- The return statement makes these functions/tables available when this file is included.
 -- We might not need to return Piece, Attacker, Defender if only create_piece is used externally.
-create_piece = create_piece -- Make create_piece globally accessible
+-- create_piece is global by default
 -- Or, more structured:
 -- return {
 --   create_piece = create_piece
