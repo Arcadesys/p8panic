@@ -127,151 +127,6 @@ local function find_safe_teleport_location(placed_x, placed_y, item_w, item_h, a
   return nil,nil
 end
 
--- SECTION 4: Placement Module
-local function legal_placement(piece)
-  local w,h=8,8
-  local th, tb = 8,6
-  local bw,bh=128,128 -- Note: laser_len for placement check now uses global LASER_LEN
-  local function vec_sub(a,b) return {x=a.x-b.x, y=a.y-b.y} end
-  local function vec_dot(a,b) return a.x*b.x+a.y*b.y end
-
-  local function get_rot(p)
-    local o,pv={},{}
-    local cx,cy=p.position.x,p.position.y
-    local lc={}
-    if p.type=="attacker" then
-      add(lc,{x=th/2,y=0}); add(lc,{x=-th/2,y=tb/2}); add(lc,{x=-th/2,y=-tb/2})
-    else
-      local hw,hh=w/2,h/2
-      add(lc,{x=-hw,y=-hh});add(lc,{x=hw,y=-hh})
-      add(lc,{x=hw,y=hh}); add(lc,{x=-hw,y=hh})
-    end
-    for c in all(lc) do
-      local rx=c.x*cos(p.orientation)-c.y*sin(p.orientation)
-      local ry=c.x*sin(p.orientation)+c.y*cos(p.orientation)
-      add(pv,{x=cx+rx,y=cy+ry})
-    end
-    return pv
-  end
-
-  local function project(vs,ax)
-    local mn,mx=vec_dot(vs[1],ax),vec_dot(vs[1],ax)
-    for i=2,#vs do
-      local pr=vec_dot(vs[i],ax)
-      mn, mx = min(mn,pr), max(mx,pr)
-    end
-    return mn,mx
-  end
-
-  local function get_axes(vs)
-    local ua={}
-    for i=1,#vs do
-      local p1=vs[i]; local p2=vs[(i%#vs)+1]
-      local e=vec_sub(p2,p1); local n={x=-e.y,y=e.x}
-      local l=sqrt(n.x^2+n.y^2)
-      if l>0.0001 then n.x,n.y=n.x/l,n.y/l
-        local uniq=true
-        for ea in all(ua) do if abs(vec_dot(ea,n))>0.999 then uniq=false end end
-        if uniq then add(ua,n) end
-      end
-    end
-    return ua
-  end
-
-  -- 1. bounds
-  local corners=get_rot(piece)
-  for c in all(corners) do
-    if c.x<0 or c.x>bw or c.y<0 or c.y>bh then return false end
-  end
-
-  -- 2. collision
-  local piece_corners = get_rot(piece) -- Cache rotated vertices of the current piece
-  if pieces then
-    for ep in all(pieces) do
-      -- The check 'ep~=piece' is removed as 'piece' is not in 'pieces' table yet during this call.
-      local ep_corners = get_rot(ep)
-      
-      local combined_axes = {}
-      for ax_piece in all(get_axes(piece_corners)) do add(combined_axes, ax_piece) end
-      for ax_ep in all(get_axes(ep_corners)) do add(combined_axes, ax_ep) end
-
-      local collision_with_ep = true -- Assume collision until a separating axis is found
-      if #combined_axes == 0 and #piece_corners > 0 and #ep_corners > 0 then
-        -- This case can happen if polygons are degenerate (e.g. a line)
-        -- For simplicity, assume non-degenerate or handle as collision if unsure.
-      end
-
-      for ax in all(combined_axes) do
-        local min1, max1 = project(piece_corners, ax)
-        local min2, max2 = project(ep_corners, ax)
-        if max1 < min2 or max2 < min1 then -- Separating axis found
-          collision_with_ep = false -- No collision between piece and ep
-          break -- Stop checking axes for this pair
-        end
-      end
-
-      if collision_with_ep then
-        -- All axes showed overlap for this pair (piece, ep), so they collide
-        return false -- Illegal placement
-      end
-    end
-  end
-
-  -- 3. attacker laser validation
-  if piece.type == "attacker" then
-    local apex = piece_corners[1] -- First vertex from get_rot for attacker is the apex
-    local dir_x = cos(piece.orientation)
-    local dir_y = sin(piece.orientation)
-    
-    local laser_hits_defender = false
-    if pieces then -- Ensure pieces table exists
-      for ep_idx, ep_val in pairs(pieces) do -- Use pairs for sparse arrays or ipairs if dense and 1-indexed
-        if ep_val.type == "defender" then
-          local defender_corners = get_rot(ep_val) -- Get rotated corners of the existing defender
-          for j = 1, #defender_corners do
-            local k = (j % #defender_corners) + 1
-            local x1, y1 = defender_corners[j].x, defender_corners[j].y
-            local x2, y2 = defender_corners[k].x, defender_corners[k].y
-            
-            local ix, iy, t = ray_segment_intersect(apex.x, apex.y, dir_x, dir_y, x1, y1, x2, y2)
-            
-            if t and t >= 0 and t <= LASER_LEN then -- Hit within laser range (t>=0 ensures it's forward)
-              laser_hits_defender = true
-              break -- Found a hit with this defender's segment
-            end
-          end
-        end
-        if laser_hits_defender then
-          break -- Found a defender hit by the laser
-        end
-      end
-    end
-    
-    if not laser_hits_defender then
-      return false -- Attacker laser must hit a defender
-    end
-  end
-
-  return true
-end
-
-local function place_piece(p)
-  -- p is the candidate piece data: { owner, type, position, orientation }
-  if legal_placement(p) then
-    -- Augment the piece data 'p' before adding it to the global 'pieces' list
-    if p.type == "defender" then
-      p.hits = 0
-      p.state = "neutral" -- "successful", "unsuccessful", "overcharged"
-      p.targeting_attackers = {} -- List of attacker pieces targeting this defender
-    elseif p.type == "attacker" then
-      -- Attackers don't have specific state like defenders in this mechanic
-      -- but could have properties like 'currently_hitting = {}' if needed later
-    end
-    add(pieces, p) -- Add the (potentially augmented) piece 'p'
-    -- redraw_lasers() was a placeholder, actual laser drawing is in _draw
-  end
-end
-
 -- SECTION 5: UI Module (No UI code)
 -- (no UI code)
 
@@ -452,7 +307,7 @@ function update_controls()
 end
 
 -- SECTION 7: Drawing Module
-pieces = {}
+-- pieces = {} -- This was redundant, pieces is initialized in start_game_with_players
 
 -- Piece dims for drawing
 local defender_width, defender_height = 8,8
@@ -475,6 +330,88 @@ local function get_piece_draw_vertices(piece)
     add(ws,{x=cx+rx,y=cy+ry})
   end
   return ws
+end
+
+local function draw_piece(p)
+  if not p or not p.position or not p.orientation then return end
+  local v = get_piece_draw_vertices(p)
+  local col = p.owner or 7
+
+  if p.type == "attacker" then
+    -- Draw attacker triangle
+    line(v[1].x, v[1].y, v[2].x, v[2].y, col)
+    line(v[2].x, v[2].y, v[3].x, v[3].y, col)
+    line(v[3].x, v[3].y, v[1].x, v[1].y, col)
+
+    -- Draw laser beam
+    local apex = v[1]
+    local dir_x, dir_y = cos(p.orientation), sin(p.orientation)
+    local min_t = LASER_LEN
+    local hit_defender_at_min_t = false
+
+    if pieces then -- Ensure pieces table exists and is iterable
+      for _, other_piece in ipairs(pieces) do
+        if other_piece and other_piece ~= p then -- Don't check collision with self
+          local is_other_defender = (other_piece.type == "defender")
+          local other_verts = get_piece_draw_vertices(other_piece)
+          
+          if not other_verts or #other_verts == 0 then goto next_other_piece_laser_check_dp end
+
+          for j=1,#other_verts do
+            local k = (j%#other_verts)+1
+            local ix, iy, t_intersect = ray_segment_intersect(
+              apex.x, apex.y, dir_x, dir_y,
+              other_verts[j].x, other_verts[j].y, other_verts[k].x, other_verts[k].y)
+            
+            if t_intersect and t_intersect >= 0 then
+              if t_intersect < min_t then
+                min_t = t_intersect
+                hit_defender_at_min_t = is_other_defender 
+              elseif t_intersect == min_t and is_other_defender then
+                -- If multiple things hit at same closest distance, prioritize if one is a defender
+                hit_defender_at_min_t = true
+              end
+            end
+          end -- end for j (looping through other_piece vertices)
+        end -- end if other_piece and other_piece ~= p
+        ::next_other_piece_laser_check_dp::
+      end -- end for _, other_piece (looping through all pieces)
+    end -- end if pieces
+
+    local beam_len = min(min_t, LASER_LEN)
+    local segments = 16 -- Number of dashes for the laser
+    local speed = 4     -- Speed of "dancing ants" animation
+    local phase = (t()*speed)%2 -- Animation phase
+    
+    local current_beam_color = laser_color or (p.owner or 7) -- Default to global or owner
+    if hit_defender_at_min_t then -- If the laser's effective end is on a defender
+      current_beam_color = 8 -- PICO-8 red
+    end
+
+    for s=0,segments-1 do
+      local dash_is_visible = ((s+phase)%2)<1
+      if dash_is_visible then
+        local x1 = apex.x + dir_x*beam_len*(s/segments)
+        local y1 = apex.y + dir_y*beam_len*(s/segments)
+        local x2 = apex.x + dir_x*beam_len*((s+1)/segments)
+        local y2 = apex.y + dir_y*beam_len*((s+1)/segments)
+        line(x1,y1,x2,y2, current_beam_color)
+      end
+    end
+  elseif p.type == "defender" then
+    -- Draw defender (rectangle)
+    for i=1,#v do -- Iterate through all vertices returned
+      local next_idx = (i % #v) + 1
+      line(v[i].x,v[i].y,v[next_idx].x,v[next_idx].y,col)
+    end
+    
+    -- Visual cue for defender state
+    if p.state == "unsuccessful" then
+      circfill(p.position.x, p.position.y, 1, 0) -- Small black dot
+    elseif p.state == "overcharged" then
+      circfill(p.position.x, p.position.y, 2, 7) -- Slightly larger white dot
+    end
+  end
 end
 
 function update_game_logic()
@@ -558,195 +495,103 @@ function _draw()
   _draw_main_menu()
   if menu_active then return end
 
-  cls(0)
-  for _, p in ipairs(pieces) do
-    if p and p.position and p.orientation then
-      local v=get_piece_draw_vertices(p)
-      local col=p.owner or 7
-      if p.type=="attacker" then
-        -- draw attacker triangle
-        line(v[1].x,v[1].y,v[2].x,v[2].y,col)
-        line(v[2].x,v[2].y,v[3].x,v[3].y,col)
-        line(v[3].x,v[3].y,v[1].x,v[1].y,col)
-        -- dancing ants laser beam with collision
-        local apex = v[1]
-        local dx, dy = cos(p.orientation), sin(p.orientation)
-        local min_t = LASER_LEN
-        local hit_defender_at_min_t = false -- Flag to check if the closest hit is a defender
+  cls(0) -- Clear screen
 
-        -- Check all other pieces for laser intersection to determine visual length/color
-        for _, other_piece in ipairs(pieces) do
-          if other_piece and other_piece ~= p then -- Don't check collision with self
-            local is_other_defender = (other_piece.type == "defender")
-            local verts = get_piece_draw_vertices(other_piece)
-            if not verts or #verts == 0 then goto next_other_piece_check end
+  -- Draw all pieces using the helper function
+  if pieces then
+    for _, p_item in ipairs(pieces) do
+      draw_piece(p_item) -- Call the helper for each piece
+    end
+  end
 
-              for j=1,#verts do
-                local k = (j%#verts)+1
-                local ix, iy, t_intersect = ray_segment_intersect(
-                  apex.x, apex.y, dx, dy,
-                  verts[j].x, verts[j].y, verts[k].x, verts[k].y)
-                if t_intersect and t_intersect >= 0 then
-                  if t_intersect < min_t then
-                    min_t = t_intersect
-                    -- Check if this closest hit is specifically a defender for coloring
-                    hit_defender_at_min_t = is_other_defender 
-                  elseif t_intersect == min_t and is_other_defender then
-                    -- If multiple things hit at same closest distance, prioritize if one is a defender
-                    hit_defender_at_min_t = true
+  -- Draw attacker capture indicators (if any cursor is in capture mode)
+  local any_cursor_in_capture_mode = false
+  if cursors then
+    for _, cur_check in ipairs(cursors) do
+      if cur_check.pending_type == "capture" then
+        any_cursor_in_capture_mode = true
+        break
+      end
+    end
+  end
+
+  if any_cursor_in_capture_mode and pieces then
+    for _, p_attacker_check in ipairs(pieces) do
+      if p_attacker_check and p_attacker_check.type == "attacker" then
+        -- attacker_triangle_height is an upvalue from SECTION 7
+        local radius = (attacker_triangle_height or 8)/2 + 2 
+        circ(p_attacker_check.position.x, p_attacker_check.position.y, radius, 13) -- PICO-8 light-red/pink
+      end
+    end
+  end
+
+  -- Draw all cursors
+  if cursors then
+    for i,cur in ipairs(cursors) do
+      local cx,cy = cur.x, cur.y
+      local col = player.ghost_colors[i] or 7
+      
+      if cur.control_state==0 or cur.control_state==2 then -- Moving or in Cooldown
+        if cur.pending_type=="defender" then
+          rect(cx,cy,cx+7,cy+7,col)
+        elseif cur.pending_type=="attacker" then
+          local x,y=cx+4,cy+4 -- Center of 8x8 cursor box
+          line(x,y-2,x-2,y+2,col) 
+          line(x,y-2,x+2,y+2,col) 
+          line(x-2,y+2,x+2,y+2,col) 
+        else -- Capture mode cursor (crosshair)
+          local x,y=cx+4,cy+4
+          line(x-2,y,x+2,y,col); line(x,y-2,x,y+2,col)
+        end
+      elseif cur.control_state==1 then -- Placing: Draw ghost piece
+        local tp={ owner=cur.pending_color, type=cur.pending_type,
+                   position={x=cx+4,y=cy+4}, orientation=cur.pending_orientation }
+        local v_ghost=get_piece_draw_vertices(tp)
+        if tp.type=="attacker" then
+          for j=1,3 do
+            local k=j%3+1
+            line(v_ghost[j].x,v_ghost[j].y,v_ghost[k].x,v_ghost[k].y,cur.pending_color)
+          end
+          -- Draw preview laser for attacker ghost
+          local apex_ghost = v_ghost[1] 
+          local dx_ghost = cos(tp.orientation)
+          local dy_ghost = sin(tp.orientation)
+          local min_t_ghost = LASER_LEN
+
+          if pieces then 
+            for _, existing_piece in ipairs(pieces) do
+              if existing_piece and existing_piece.type == "defender" then
+                local def_verts = get_piece_draw_vertices(existing_piece)
+                if def_verts and #def_verts > 0 then
+                  for j_vert=1, #def_verts do
+                    local k_vert = (j_vert % #def_verts) + 1
+                    local ix, iy, t_val = ray_segment_intersect(apex_ghost.x, apex_ghost.y, dx_ghost, dy_ghost, def_verts[j_vert].x, def_verts[j_vert].y, def_verts[k_vert].x, def_verts[k_vert].y)
+                    if t_val and t_val >= 0 and t_val < min_t_ghost then 
+                      min_t_ghost = t_val
+                    end
                   end
                 end
               end
             end
-          ::next_other_piece_check::
-        end
+          end
+          local beam_len_ghost = min(min_t_ghost, LASER_LEN)
+          
+          local laser_end_x = apex_ghost.x + dx_ghost * beam_len_ghost
+          local laser_end_y = apex_ghost.y + dy_ghost * beam_len_ghost
+          line(apex_ghost.x, apex_ghost.y, laser_end_x, laser_end_y, cur.pending_color)
 
-        local beam_len = min(min_t, LASER_LEN)
-        local segments = 16
-        local speed = 4
-        local phase = (t()*speed)%2
-        local current_laser_color = laser_color or (p.owner or 7)
-        if hit_defender_at_min_t then -- If the laser's effective end is on a defender
-          current_laser_color = 8 -- PICO-8 red
-        end
-
-        for s=0,segments-1 do
-          local dash = ((s+phase)%2)<1
-          if dash then
-            local x1 = apex.x + dx*beam_len*(s/segments)
-            local y1 = apex.y + dy*beam_len*(s/segments)
-            local x2 = apex.x + dx*beam_len*((s+1)/segments)
-            local y2 = apex.y + dy*beam_len*((s+1)/segments)
-            line(x1,y1,x2,y2, current_laser_color)
+        else -- Defender ghost
+          for j_vert=1,4 do
+            local k_vert=j_vert%4+1
+            line(v_ghost[j_vert].x,v_ghost[j_vert].y,v_ghost[k_vert].x,v_ghost[k_vert].y,cur.pending_color)
           end
         end
-        -- show capture indicator if any cursor is in capture mode
-        for _,cur in ipairs(cursors) do
-          if cur.pending_type=="capture" then
-            circ(p.position.x, p.position.y, attacker_triangle_height/2+2, 13)
-            break
-          end
-        end
-      elseif p.type == "defender" then -- Draw defender
-        for i=1,4 do
-          local n=i%4+1
-          line(v[i].x,v[i].y,v[n].x,v[n].y,col)
-        end
-        -- Visual cue for defender state
-        if p.state == "unsuccessful" then
-          circfill(p.position.x, p.position.y, 1, 0) -- Small black dot
-        elseif p.state == "overcharged" then
-          circfill(p.position.x, p.position.y, 2, 7) -- Slightly larger white dot
-          -- Or, to show number of targeting attackers:
-          -- print(#(p.targeting_attackers or {}), p.position.x - 2, p.position.y - 10, 7)
-        end
-        -- Optionally, print hits: print(p.hits, p.position.x - 2, p.position.y - 4, 7)
-
       end
-    end
-  end
-
-  -- draw all cursors
-  for i,cur in ipairs(cursors) do
-    local cx,cy = cur.x, cur.y
-    local col = player.ghost_colors[i] or 7
-    
-    if cur.control_state==0 or cur.control_state==2 then -- Moving or in Cooldown
-      if cur.pending_type=="defender" then
-        rect(cx,cy,cx+7,cy+7,col)
-      elseif cur.pending_type=="attacker" then
-        local x,y=cx+4,cy+4 -- Center of 8x8 cursor box
-        -- Draw a small triangle pointing up (default orientation for cursor display)
-        -- This might need adjustment if cursor orientation should reflect pending_orientation
-        line(x,y-2,x-2,y+2,col) -- left side
-        line(x,y-2,x+2,y+2,col) -- right side
-        line(x-2,y+2,x+2,y+2,col) -- base
-      else -- Capture mode cursor (crosshair)
-        local x,y=cx+4,cy+4
-        line(x-2,y,x+2,y,col); line(x,y-2,x,y+2,col)
-      end
-    elseif cur.control_state==1 then -- Placing: Draw ghost piece
-      local tp={ owner=cur.pending_color, type=cur.pending_type,
-                 position={x=cx+4,y=cy+4}, orientation=cur.pending_orientation }
-      local v_ghost=get_piece_draw_vertices(tp)
-      if tp.type=="attacker" then
-        for j=1,3 do
-          local k=j%3+1
-          line(v_ghost[j].x,v_ghost[j].y,v_ghost[k].x,v_ghost[k].y,cur.pending_color)
-        end
-        -- Draw preview laser for attacker ghost
-        local apex_ghost = v_ghost[1] -- Assuming v_ghost[1] is the apex
-        local dx_ghost = cos(tp.orientation)
-        local dy_ghost = sin(tp.orientation)
-        local min_t_ghost = LASER_LEN
-
-        if pieces then -- Check against actual placed defenders
-          for _, existing_piece in ipairs(pieces) do
-            if existing_piece and existing_piece.type == "defender" then
-              local def_verts = get_piece_draw_vertices(existing_piece)
-              for j=1, #def_verts do
-                local k = (j % #def_verts) + 1
-                local ix, iy, t = ray_segment_intersect(apex_ghost.x, apex_ghost.y, dx_ghost, dy_ghost, def_verts[j].x, def_verts[j].y, def_verts[k].x, def_verts[k].y)
-                if t and t >= 0 and t < min_t_ghost then -- Hit must be forward and closer than previous or LASER_LEN
-                  min_t_ghost = t
-                end
-              end
-            end
-          end
-        end
-        local beam_len_ghost = min(min_t_ghost, LASER_LEN)
-        
-        -- Draw a simple line for the preview laser
-        local laser_end_x = apex_ghost.x + dx_ghost * beam_len_ghost
-        local laser_end_y = apex_ghost.y + dy_ghost * beam_len_ghost
-        line(apex_ghost.x, apex_ghost.y, laser_end_x, laser_end_y, cur.pending_color) -- Use pending_color for preview
-
-      else -- Defender ghost
-        for j=1,4 do
-          local k=j%4+1
-          line(v_ghost[j].x,v_ghost[j].y,v_ghost[k].x,v_ghost[k].y,cur.pending_color)
-        end
-      end
-    end
-  end
+    end -- end for ipairs(cursors)
+  end -- end if cursors
 end-- SECTION 8: Game Loop
 function _init()
   -- Initialize game state, players, etc.
   -- This will be called once when the cartridge starts
   -- start_game_with_players(3) -- Example: Start with 3 players immediately
 end
-
--- Helper function to draw a piece (attacker or defender)
-local function draw_piece(p)
-  if not p or not p.position or not p.orientation then return end
-  local v = get_piece_draw_vertices(p)
-  local col = p.owner or 7
-
-  if p.type == "attacker" then
-    -- draw attacker triangle
-    line(v[1].x, v[1].y, v[2].x, v[2].y, col)
-    line(v[2].x, v[2].y, v[3].x, v[3].y, col)
-    line(v[3].x, v[3].y, v[1].x, v[1].y, col)
-
-    -- Draw laser beam
-    local apex = v[1]
-    local dx, dy = cos(p.orientation), sin(p.orientation)
-    local min_t = LASER_LEN
-    local hit_defender_at_min_t = false
-
-    for _, other_piece in ipairs(pieces) do
-      if other_piece and other_piece ~= p then
-        local is_other_defender = (other_piece.type == "defender")
-        local verts = get_piece_draw_vertices(other_piece)
-        if not verts or #verts == 0 then goto next_other_piece_check end
-
-        for j = 1, #verts do
-          local k = (j % #verts) + 1
-          local ix, iy, t_intersect = ray_segment_intersect(
-            apex.x, apex.y, dx, dy,
-            verts[j].x, verts[j].y, verts[k].x, verts[k].y
-          )
-          if t_intersect and t_intersect >= 0 then
-            if t_intersect < min_t then
-              min_t = t_intersect
-              hit_defender_at_min_t = is_other_
