@@ -251,6 +251,13 @@ function draw_playing_state_elements()
   for _, piece_obj in ipairs(pieces) do
     if piece_obj and piece_obj.draw then
       piece_obj:draw()
+      -- debug: show number of attackers targeting this defender on-screen
+      if piece_obj.type == "defender" then
+        local count = 0
+        if piece_obj.targeting_attackers then count = #piece_obj.targeting_attackers end
+        -- print count above defender
+        print(count, piece_obj.position.x + 4, piece_obj.position.y - 8, 7)
+      end
     end
   end
   

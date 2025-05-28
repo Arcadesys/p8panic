@@ -70,12 +70,8 @@ function score_pieces()
               elseif defender_obj.hits == 1 then
                 defender_obj.state = "successful" -- Hit once, still neutral
               end
-              -- No break here, an attacker's laser can pass through multiple segments of a defender
-              -- or even multiple defenders if LASER_LEN is long enough and pieces are aligned.
-              -- However, for scoring, we usually count one hit per attacker-defender pair.
-              -- The current logic correctly adds to .hits for each segment intersected.
-              -- If an attacker should only score once per defender, regardless of segments,
-              -- a flag would be needed here. For now, assuming hits accumulate per segment.
+              -- Only count one hit per attacker-defender pair, then stop checking other segments
+              break
             end
           end
         end
@@ -88,18 +84,20 @@ function score_pieces()
   -- Score defenders based on incoming attackers
   for _, p_obj in ipairs(pieces) do
     if p_obj and p_obj.type == "defender" then
-      local num_attackers_targeting = 0
+      local num_total_attackers_targeting = 0
       if p_obj.targeting_attackers then
-        num_attackers_targeting = #p_obj.targeting_attackers
+        num_total_attackers_targeting = #p_obj.targeting_attackers
       end
+      p_obj.dbg_target_count = num_total_attackers_targeting -- Store for on-screen debugging
 
-      if num_attackers_targeting <= 1 then
+      if num_total_attackers_targeting <= 1 then -- Defender scores if 0 or 1 attacker targets it
         local defender_player = player_manager.get_player(p_obj.owner_id)
         if defender_player then
           defender_player:add_score(1)
           -- Potentially update defender state here if needed, e.g., p_obj.state = "defending_well"
         end
       end
+      -- If num_total_attackers_targeting is 2 or more, the defender does not score a point.
     end
   end
 
