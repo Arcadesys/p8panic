@@ -121,8 +121,6 @@ end
 -- Game Specific Logic (Initialization, Update, Draw)
 ------------------------------------------
 function init_game_properly()
-  printh("init_game_properly: N_PLAYERS="..N_PLAYERS..", STASH_SIZE="..STASH_SIZE)
-
   if player_manager and player_manager.init_players then
     player_manager.init_players(N_PLAYERS) 
   else

@@ -114,11 +114,9 @@ function player_manager.init_players(num_players)
     -- Player:new uses global STASH_SIZE, which should be set before this by menu/game init
     player_manager.current_players[i] = Player:new(i, 0, color, ghost_color)
   end
-  
-  printh("Initialized " .. num_players .. " players.")
 end
 
--- Function to get a player\'s instance
+-- Function to get a player's instance
 function player_manager.get_player(player_id)
   if not player_manager.current_players then
      printh("Accessing player_manager.current_players before init_players?")
