@@ -1,171 +1,128 @@
--- src/1.player.lua (Corrected filename in comment)
---#globals player_manager STASH_SIZE create_player Player -- Added STASH_SIZE, create_player, Player to globals for clarity if used by other files directly.
--- Ensure player_manager is treated as the global table defined in 0.init.lua
-
 local Player = {}
-Player.__index = Player -- For metatable inheritance
+Player.__index = Player
 
--- Constructor for a new player object
-function Player:new(id, initial_score, color, ghost_color) -- Added initial_score
+function Player:new(id, initial_score, color, ghost_color)
   local instance = {
     id = id,
     score = initial_score or 0,
     color = color,
     ghost_color = ghost_color,
-    stash = {}, -- Remains for any other logic, but HUD uses stash_counts
-    stash_counts = {}, -- Initialize as an empty table (map)
+    stash = {},
+    stash_counts = {},
     captured_pieces_count = 0 
   }
-  -- Initialize stash_counts with STASH_SIZE pieces of the player's own color
   instance.stash_counts[color] = STASH_SIZE or 6
 
   setmetatable(instance, self)
   return instance
 end
 
--- Method to get player's score (example of a method)
 function Player:get_score()
   return self.score
 end
 
--- Method to increment player's score (example of a method)
 function Player:add_score(points)
   self.score = self.score + (points or 1)
 end
 
--- Method to get player's color
 function Player:get_color()
   return self.color
 end
 
--- Method to get player's ghost color
 function Player:get_ghost_color()
   return self.ghost_color
 end
 
--- Method to add a captured piece to the stash
 function Player:add_captured_piece(piece_color)
   if self.stash_counts[piece_color] == nil then
     self.stash_counts[piece_color] = 0
   end
   self.stash_counts[piece_color] += 1
 
-  -- Keep self.stash for compatibility or other logic if needed, though HUD uses stash_counts
   if self.stash[piece_color] == nil then
     self.stash[piece_color] = 0
   end
   self.stash[piece_color] += 1
 end
 
--- Method to get the count of captured pieces of a specific color
 function Player:get_captured_count(piece_color)
   return self.stash[piece_color] or 0
 end
 
--- Method to check if a player has a piece of a certain color in their stash
 function Player:has_piece_in_stash(piece_color)
   return (self.stash[piece_color] or 0) > 0
 end
 
--- Method to use a piece from the stash
--- Returns true if successful, false otherwise
 function Player:use_piece_from_stash(piece_color_to_use)
   if self.stash_counts[piece_color_to_use] and self.stash_counts[piece_color_to_use] > 0 then
     self.stash_counts[piece_color_to_use] -= 1
-    printh("P"..self.id.." used piece color "..piece_color_to_use..". Stash count: "..(self.stash_counts[piece_color_to_use] or 0)) -- DEBUG
+    printh("P"..self.id.." used piece color "..piece_color_to_use..". Stash count: "..(self.stash_counts[piece_color_to_use] or 0))
     
-    -- Also update the old self.stash table for consistency if it's used elsewhere
     if self.stash[piece_color_to_use] and self.stash[piece_color_to_use] > 0 then
       self.stash[piece_color_to_use] -= 1
     end
     return true
   else
-    printh("P"..self.id.." has no pieces of color "..piece_color_to_use.." in stash_counts.") -- DEBUG
+    printh("P"..self.id.." has no pieces of color "..piece_color_to_use.." in stash_counts.")
     return false
   end
 end
 
--- Module-level table player_manager is already defined globally in 0.init.lua
--- We are adding functions to it.
--- REMOVED: player_manager = {} -- This was overwriting the global instance.
-
 player_manager.colors = {
-  [1] = 12, -- Player 1: Light Blue
-  [2] = 8,  -- Player 2: Red (Pico-8 color 8 is red)
-  [3] = 11, -- Player 3: Green
-  [4] = 10  -- Player 4: Yellow
+  [1] = 12,
+  [2] = 8,
+  [3] = 11,
+  [4] = 10
 }
 
--- Ghost/Cursor colors
 player_manager.ghost_colors = {
-  [1] = 1,  -- Player 1: Dark Blue (Pico-8 color 1)
-  [2] = 9,  -- Player 2: Orange (Pico-8 color 9)
-  [3] = 3,  -- Player 3: Dark Green (Pico-8 color 3)
-  [4] = 4   -- Player 4: Brown (Pico-8 color 4)
+  [1] = 5,
+  [2] = 14,
+  [3] = 3,
+  [4] = 15
 }
 
-player_manager.max_players = 4
-player_manager.current_players = {} -- Table to hold active player instances
+player_manager.current_players = {}
 
--- Function to initialize players at the start of a game
 function player_manager.init_players(num_players)
-  if num_players < 1 or num_players > player_manager.max_players then
-    printh("Error: Invalid number of players. Must be between 1 and " .. player_manager.max_players)
-    return
-  end
-
-  player_manager.current_players = {} -- Reset current players
-
+  player_manager.current_players = {}
   for i = 1, num_players do
-    local color = player_manager.colors[i]
-    local ghost_color = player_manager.ghost_colors[i]
-    if not color then
-      printh("Warning: No color defined for player " .. i .. ". Defaulting to white (7).")
-      color = 7
+    local p_color = player_manager.colors[i]
+    local p_ghost_color = player_manager.ghost_colors[i]
+    if Player and Player.new then
+      player_manager.current_players[i] = Player:new(i, 0, p_color, p_ghost_color)
+    else
+      printh("Error: Player or Player:new not found during init_players!")
+      player_manager.current_players[i] = {id=i, score=0, color=p_color, ghost_color=p_ghost_color, stash={}, stash_counts={[p_color]=STASH_SIZE or 6}} 
     end
-    if not ghost_color then
-      printh("Warning: No ghost color defined for player " .. i .. ". Defaulting to dark blue (1).")
-      ghost_color = 1
+  end
+  printh("Initialized " .. num_players .. " players.")
+end
+
+function player_manager.get_player(id)
+  return player_manager.current_players[id]
+end
+
+function player_manager.reset_all_scores()
+  for _, player_obj in ipairs(player_manager.current_players) do
+    if player_obj then
+      player_obj.score = 0
     end
-    -- Player:new uses global STASH_SIZE, which should be set before this by menu/game init
-    player_manager.current_players[i] = Player:new(i, 0, color, ghost_color)
   end
 end
 
--- Function to get a player's instance
-function player_manager.get_player(player_id)
-  if not player_manager.current_players then
-     printh("Accessing player_manager.current_players before init_players?")
-     return nil
-  end
-  return player_manager.current_players[player_id]
-end
-
--- Function to get a player's color (can still be useful as a direct utility)
-function player_manager.get_player_color(player_id)
-  local p_instance = player_manager.get_player(player_id)
-  if p_instance then
-    return p_instance:get_color()
+function create_player(id, initial_score, color, ghost_color)
+  if Player and Player.new then
+    return Player:new(id, initial_score, color, ghost_color)
   else
-    return 7 -- Default to white if player not found, or handle error
+    printh("Error: Player or Player.new is not defined when calling create_player.")
+    return { 
+      id = id, 
+      score = initial_score or 0, 
+      color = color or 7, 
+      ghost_color = ghost_color or 7, 
+      stash = {}, 
+      stash_counts = {[color or 7] = STASH_SIZE or 6} 
+    }
   end
 end
-
--- Function to get a player's ghost color
-function player_manager.get_player_ghost_color(player_id)
-  local p_instance = player_manager.get_player(player_id)
-  if p_instance then
-    return p_instance:get_ghost_color()
-  else
-    return 1 -- Default to dark blue if player not found
-  end
-end
-
--- Function to get the current number of initialized players
-function player_manager.get_player_count()
-  if not player_manager.current_players then return 0 end
-  return #player_manager.current_players
-end
-
--- Expose Player class if other modules need to create players or check type (optional)
--- Player = Player

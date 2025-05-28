@@ -1,8 +1,4 @@
--- Converted Controls Module for Multi-Cursor Support
--- Handles player input and updates control-related game state for each cursor.
---#globals player_manager cursors place_piece attempt_capture original_update_game_logic_func
---#globals max min btn btnp
--- Constants for control states (optional)
+
 local CSTATE_MOVE_SELECT = 0
 local CSTATE_ROTATE_PLACE = 1
 local CSTATE_COOLDOWN = 2

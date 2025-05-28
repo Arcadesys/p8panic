@@ -1,8 +1,3 @@
--- src/2.scoring.lua
--- Scoring Module
---#globals pieces player_manager ray_segment_intersect LASER_LEN _G
---#globals cos sin add ipairs del deli
-
 function reset_player_scores()
   if player_manager and player_manager.current_players then
     for _, player_obj in ipairs(player_manager.current_players) do
@@ -18,7 +13,6 @@ function reset_piece_states_for_scoring()
     if p_obj then
       p_obj.hits = 0
       p_obj.targeting_attackers = {}
-      -- p_obj.state = nil -- or some default state if applicable
     end
   end
 end
@@ -27,8 +21,8 @@ function _check_attacker_hit_defender(attacker_obj, defender_obj, player_manager
   local attacker_vertices = attacker_obj:get_draw_vertices()
   if not attacker_vertices or #attacker_vertices == 0 then return end
   local apex = attacker_vertices[1]
-  local dir_x = cos(attacker_obj.orientation) -- cos is global via --#globals
-  local dir_y = sin(attacker_obj.orientation) -- sin is global via --#globals
+  local dir_x = cos(attacker_obj.orientation)
+  local dir_y = sin(attacker_obj.orientation)
 
   local defender_corners = defender_obj:get_draw_vertices()
   if not defender_corners or #defender_corners == 0 then return end
@@ -84,21 +78,17 @@ function score_pieces()
   reset_player_scores()
   reset_piece_states_for_scoring()
 
-  -- Score attackers hitting defenders
-  for _, attacker_obj in ipairs(pieces) do -- Use global 'pieces' directly
+  for _, attacker_obj in ipairs(pieces) do
     if attacker_obj and attacker_obj.type == "attacker" then
-      for _, defender_obj in ipairs(pieces) do -- Use global 'pieces' directly
+      for _, defender_obj in ipairs(pieces) do
         if defender_obj and defender_obj.type == "defender" then
-          -- Pass global variables directly to the helper function
           _check_attacker_hit_defender(attacker_obj, defender_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
         end
       end
     end
   end
 
-  -- Score defenders based on incoming attackers
-  for _, p_obj in ipairs(pieces) do -- Use global 'pieces' directly
-    -- Pass global 'player_manager' directly
+  for _, p_obj in ipairs(pieces) do
     _score_defender(p_obj, player_manager)
   end
 
@@ -113,5 +103,11 @@ function score_pieces()
   pieces = remaining_pieces
 end
 
--- Renamed from score_pieces to update_game_state to reflect broader scope
+function calculate_final_scores()
+  score_pieces()
+  -- Potentially, in the future, we might want to do something additional
+  -- specific to final scoring here, like determining winners.
+  -- For now, just re-running score_pieces covers the calculation.
+end
+
 update_game_state = score_pieces

@@ -226,11 +226,3 @@ function create_piece(params) -- `params` should include owner_id, type, positio
   end
   return piece_obj
 end
-
--- The return statement makes these functions/tables available when this file is included.
--- We might not need to return Piece, Attacker, Defender if only create_piece is used externally.
--- create_piece is global by default
--- Or, more structured:
--- return {
---   create_piece = create_piece
--- }

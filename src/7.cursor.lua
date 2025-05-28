@@ -13,18 +13,32 @@ local default_cursor_props = {
 }
 
 function create_cursor(player_id, initial_x, initial_y)
-  local p_ghost_color = 7 -- Default color if player_manager or method is missing
-  if player_manager and player_manager.get_player_ghost_color then
-    local player = player_manager.get_player(player_id) -- Get the player object first
-    if player and player.get_ghost_color then
-      p_ghost_color = player:get_ghost_color()
-    elseif player_manager.get_player_ghost_color then -- Fallback to old direct method if exists
-      p_ghost_color = player_manager.get_player_ghost_color(player_id)
+  local p_color = 7 -- Default to white if everything else fails
+  local p_ghost_color = 7 -- Default to white
+
+  if player_manager and player_manager.get_player then
+    local player = player_manager.get_player(player_id)
+    if player then
+      if player.get_color then
+        p_color = player:get_color() -- Get primary color as a base
+      end
+      if player.get_ghost_color then
+        local ghost_color_val = player:get_ghost_color()
+        if ghost_color_val then -- Ensure ghost color is not nil
+          p_ghost_color = ghost_color_val
+        else
+          p_ghost_color = p_color -- Fallback to primary color if ghost is nil
+          printh("Warning: P"..player_id.." ghost color was nil, using primary color.")
+        end
+      else
+        p_ghost_color = p_color -- Fallback to primary color if no get_ghost_color method
+        printh("Warning: P"..player_id.." has no get_ghost_color method, using primary color.")
+      end
     else
-      printh("Warning: Could not get ghost color for P"..player_id)
+      printh("Warning: Could not get player object for P"..player_id.." for cursor color.")
     end
   else
-    printh("Warning: player_manager or get_player_ghost_color not available for cursor.")
+    printh("Warning: player_manager or get_player not available for cursor color.")
   end
   
   local cur = {
@@ -38,7 +52,7 @@ function create_cursor(player_id, initial_x, initial_y)
     control_state = default_cursor_props.control_state,
     pending_type = default_cursor_props.pending_type,
     pending_orientation = default_cursor_props.pending_orientation,
-    pending_color = p_ghost_color, -- Default to player's ghost color
+    pending_color = p_ghost_color, -- Use the determined ghost color
     color_select_idx = default_cursor_props.color_select_idx,
     return_cooldown = default_cursor_props.return_cooldown,
 

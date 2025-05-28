@@ -1,34 +1,21 @@
 pico-8 cartridge // http://www.pico-8.com
-version 42
+version 16
 __lua__
 ---@diagnostic disable: undefined-global
--- p8panic - A game of tactical geometry
 
-player_manager = {} -- Initialize player_manager globally here
-STASH_SIZE = 6 -- Default stash size, configurable in menu (min 3, max 10)
-create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua)
-pieces = {} -- Initialize pieces globally here
-LASER_LEN = 60 -- Initialize LASER_LEN globally here
-N_PLAYERS = 4 -- Initialize N_PLAYERS globally here
-cursors = {} -- Initialize cursors globally here
-CAPTURE_RADIUS_SQUARED = 64 -- Initialize CAPTURE_RADIUS_SQUARED globally here
+player_manager = {}
+STASH_SIZE = 6
+create_piece = nil
+pieces = {}
+LASER_LEN = 60
+N_PLAYERS = 4
+cursors = {}
+CAPTURE_RADIUS_SQUARED = 64
 
--- Global game state
-global_game_state = "main_menu" -- "main_menu", "in_game", "game_over", etc.
+global_game_state = "main_menu"
 
--- Global variables for menu settings (to be set by the menu via 7.main.lua)
-player_count = N_PLAYERS -- Default to current N_PLAYERS
-stash_count = STASH_SIZE  -- Default to current STASH_SIZE
-
--------------------------------------------
--- Helpers & Global Constants/Variables --
--------------------------------------------
---#globals player_manager create_piece pieces LASER_LEN N_PLAYERS cursors CAPTURE_RADIUS_SQUARED global_game_state player_count stash_count
---#globals ray_segment_intersect attempt_capture -- Core helpers defined in this file
---#globals update_controls score_pieces place_piece legal_placement -- Functions from modules
---#globals internal_update_game_logic original_update_game_logic_func original_update_controls_func ui_handler -- ui_handler is now set in 7.main.lua
-
--- CAPTURE_RADIUS_SQUARED = 64 -- (8*8) For capture proximity check -- Already defined above
+player_count = N_PLAYERS
+stash_count = STASH_SIZE
 
 function point_in_polygon(px, py, vertices)
   local inside = false
@@ -44,14 +31,10 @@ function point_in_polygon(px, py, vertices)
   return inside
 end
 
--- Cached math functions
 local cos, sin = cos, sin
 local max, min = max, min
 local sqrt, abs = sqrt, abs
 
-------------------------------------------
--- Core Helper Functions (defined before includes that might use them)
-------------------------------------------
 function ray_segment_intersect(ray_ox, ray_oy, ray_dx, ray_dy,
                                seg_x1, seg_y1, seg_x2, seg_y2)
   local s_dx = seg_x2 - seg_x1
@@ -73,9 +56,9 @@ function attempt_capture(player_obj, cursor)
   for _, def_obj in ipairs(pieces) do
     if def_obj.type == "defender" and def_obj.owner_id == player_id and def_obj.state == "overcharged" then
       if def_obj.targeting_attackers then
-        for attacker_idx = #def_obj.targeting_attackers, 1, -1 do -- Iterate backwards for safe removal
+        for attacker_idx = #def_obj.targeting_attackers, 1, -1 do
           local attacker_to_capture = def_obj.targeting_attackers[attacker_idx]
-          if attacker_to_capture then -- Ensure attacker still exists
+          if attacker_to_capture then
             local dist_x = (cursor.x + 4) - attacker_to_capture.position.x
             local dist_y = (cursor.y + 4) - attacker_to_capture.position.y
             
@@ -83,7 +66,7 @@ function attempt_capture(player_obj, cursor)
               local captured_color = attacker_to_capture:get_color()
               player_obj:add_captured_piece(captured_color)
               
-              if del(pieces, attacker_to_capture) then -- Remove from global pieces
+              if del(pieces, attacker_to_capture) then
                 printh("P" .. player_id .. " captured attacker (color: " .. captured_color .. ")")
                 deli(def_obj.targeting_attackers, attacker_idx) 
                 return true 
@@ -99,212 +82,170 @@ end
 
 sfx_on=true
 
-game_timer = 3 -- Default game time in minutes
+game_timer = 3
 
--- All modules are loaded via Pico-8 tabs; #include directives are not used.
--- Main Pico-8 functions (_init, _update, _draw) and their specific logic
--- (e.g., init_game_properly, _update_main_menu, _draw_game)
--- have been moved to src/7.main.lua.
+config = {
+  player_options = {2, 3, 4},
+  current_players_idx = 3,
 
--- This file now primarily serves to define global variables, constants,
--- and core helper functions that are used across multiple modules.
+  timer_options = {1, 2, 3, 5, 10},
+  current_timer_idx = 3,
 
--- Example of a function that might have been wrapped, now handled in 7.main.lua
--- if it needs wrapping. If it's a core game logic update that doesn't need
--- state-based wrapping (like menu vs game), it could live here or in its own module.
--- For now, assuming update_game_logic and update_controls are functions defined
--- in other modules (e.g. 2.scoring.lua for game logic, 5.controls.lua for controls)
--- and will be called by the main loop in 7.main.lua.
+  get_players_value = function()
+    return config.player_options[config.current_players_idx]
+  end,
 
--- function internal_update_game_logic()
---   if original_update_game_logic_func then
---     original_update_game_logic_func()
---   end
---   -- Add any logic that should always run, regardless of game state, if any.
---   -- Or, this function itself is the "original" if no other module defines `update_game_logic`.
--- end
+  set_players_idx = function(idx)
+    config.current_players_idx = idx
+    N_PLAYERS = config.get_players_value()
+    printh("N_PLAYERS set to: " .. N_PLAYERS)
+  end,
 
--- Note: The original_update_game_logic_func and original_update_controls_func
--- are now declared and managed within src/7.main.lua as they are part of the
--- main loop's state management.
+  get_timer_value = function()
+    return config.timer_options[config.current_timer_idx]
+  end,
+
+  set_timer_idx = function(idx)
+    config.current_timer_idx = idx
+    game_timer = config.get_timer_value()
+    printh("Game timer set to: " .. game_timer .. " min")
+  end
+}
+
+N_PLAYERS = config.get_players_value()
+game_timer = config.get_timer_value()
 -->8
--- src/1.player.lua (Corrected filename in comment)
---#globals player_manager STASH_SIZE create_player Player -- Added STASH_SIZE, create_player, Player to globals for clarity if used by other files directly.
--- Ensure player_manager is treated as the global table defined in 0.init.lua
-
+--player
 local Player = {}
-Player.__index = Player -- For metatable inheritance
+Player.__index = Player
 
--- Constructor for a new player object
-function Player:new(id, initial_score, color, ghost_color) -- Added initial_score
+function Player:new(id, initial_score, color, ghost_color)
   local instance = {
     id = id,
     score = initial_score or 0,
     color = color,
     ghost_color = ghost_color,
-    stash = {}, -- Remains for any other logic, but HUD uses stash_counts
-    stash_counts = {}, -- Initialize as an empty table (map)
+    stash = {},
+    stash_counts = {},
     captured_pieces_count = 0 
   }
-  -- Initialize stash_counts with STASH_SIZE pieces of the player's own color
   instance.stash_counts[color] = STASH_SIZE or 6
 
   setmetatable(instance, self)
   return instance
 end
 
--- Method to get player's score (example of a method)
 function Player:get_score()
   return self.score
 end
 
--- Method to increment player's score (example of a method)
 function Player:add_score(points)
   self.score = self.score + (points or 1)
 end
 
--- Method to get player's color
 function Player:get_color()
   return self.color
 end
 
--- Method to get player's ghost color
 function Player:get_ghost_color()
   return self.ghost_color
 end
 
--- Method to add a captured piece to the stash
 function Player:add_captured_piece(piece_color)
   if self.stash_counts[piece_color] == nil then
     self.stash_counts[piece_color] = 0
   end
   self.stash_counts[piece_color] += 1
 
-  -- Keep self.stash for compatibility or other logic if needed, though HUD uses stash_counts
   if self.stash[piece_color] == nil then
     self.stash[piece_color] = 0
   end
   self.stash[piece_color] += 1
 end
 
--- Method to get the count of captured pieces of a specific color
 function Player:get_captured_count(piece_color)
   return self.stash[piece_color] or 0
 end
 
--- Method to check if a player has a piece of a certain color in their stash
 function Player:has_piece_in_stash(piece_color)
   return (self.stash[piece_color] or 0) > 0
 end
 
--- Method to use a piece from the stash
--- Returns true if successful, false otherwise
 function Player:use_piece_from_stash(piece_color_to_use)
   if self.stash_counts[piece_color_to_use] and self.stash_counts[piece_color_to_use] > 0 then
     self.stash_counts[piece_color_to_use] -= 1
-    printh("P"..self.id.." used piece color "..piece_color_to_use..". Stash count: "..(self.stash_counts[piece_color_to_use] or 0)) -- DEBUG
+    printh("P"..self.id.." used piece color "..piece_color_to_use..". Stash count: "..(self.stash_counts[piece_color_to_use] or 0))
     
-    -- Also update the old self.stash table for consistency if it's used elsewhere
     if self.stash[piece_color_to_use] and self.stash[piece_color_to_use] > 0 then
       self.stash[piece_color_to_use] -= 1
     end
     return true
   else
-    printh("P"..self.id.." has no pieces of color "..piece_color_to_use.." in stash_counts.") -- DEBUG
+    printh("P"..self.id.." has no pieces of color "..piece_color_to_use.." in stash_counts.")
     return false
   end
 end
 
--- Module-level table player_manager is already defined globally in 0.init.lua
--- We are adding functions to it.
--- REMOVED: player_manager = {} -- This was overwriting the global instance.
-
 player_manager.colors = {
-  [1] = 12, -- Player 1: Light Blue
-  [2] = 8,  -- Player 2: Red (Pico-8 color 8 is red)
-  [3] = 11, -- Player 3: Green
-  [4] = 10  -- Player 4: Yellow
+  [1] = 12,
+  [2] = 8,
+  [3] = 11,
+  [4] = 10
 }
 
--- Ghost/Cursor colors
 player_manager.ghost_colors = {
-  [1] = 1,  -- Player 1: Dark Blue (Pico-8 color 1)
-  [2] = 9,  -- Player 2: Orange (Pico-8 color 9)
-  [3] = 3,  -- Player 3: Dark Green (Pico-8 color 3)
-  [4] = 4   -- Player 4: Brown (Pico-8 color 4)
+  [1] = 5,
+  [2] = 14,
+  [3] = 3,
+  [4] = 15
 }
 
-player_manager.max_players = 4
-player_manager.current_players = {} -- Table to hold active player instances
+player_manager.current_players = {}
 
--- Function to initialize players at the start of a game
 function player_manager.init_players(num_players)
-  if num_players < 1 or num_players > player_manager.max_players then
-    printh("Error: Invalid number of players. Must be between 1 and " .. player_manager.max_players)
-    return
-  end
-
-  player_manager.current_players = {} -- Reset current players
-
+  player_manager.current_players = {}
   for i = 1, num_players do
-    local color = player_manager.colors[i]
-    local ghost_color = player_manager.ghost_colors[i]
-    if not color then
-      printh("Warning: No color defined for player " .. i .. ". Defaulting to white (7).")
-      color = 7
+    local p_color = player_manager.colors[i]
+    local p_ghost_color = player_manager.ghost_colors[i]
+    if Player and Player.new then
+      player_manager.current_players[i] = Player:new(i, 0, p_color, p_ghost_color)
+    else
+      printh("Error: Player or Player:new not found during init_players!")
+      player_manager.current_players[i] = {id=i, score=0, color=p_color, ghost_color=p_ghost_color, stash={}, stash_counts={[p_color]=STASH_SIZE or 6}} 
     end
-    if not ghost_color then
-      printh("Warning: No ghost color defined for player " .. i .. ". Defaulting to dark blue (1).")
-      ghost_color = 1
+  end
+  printh("Initialized " .. num_players .. " players.")
+end
+
+function player_manager.get_player(id)
+  return player_manager.current_players[id]
+end
+
+function player_manager.reset_all_scores()
+  for _, player_obj in ipairs(player_manager.current_players) do
+    if player_obj then
+      player_obj.score = 0
     end
-    -- Player:new uses global STASH_SIZE, which should be set before this by menu/game init
-    player_manager.current_players[i] = Player:new(i, 0, color, ghost_color)
   end
 end
 
--- Function to get a player's instance
-function player_manager.get_player(player_id)
-  if not player_manager.current_players then
-     printh("Accessing player_manager.current_players before init_players?")
-     return nil
-  end
-  return player_manager.current_players[player_id]
-end
-
--- Function to get a player's color (can still be useful as a direct utility)
-function player_manager.get_player_color(player_id)
-  local p_instance = player_manager.get_player(player_id)
-  if p_instance then
-    return p_instance:get_color()
+function create_player(id, initial_score, color, ghost_color)
+  if Player and Player.new then
+    return Player:new(id, initial_score, color, ghost_color)
   else
-    return 7 -- Default to white if player not found, or handle error
+    printh("Error: Player or Player.new is not defined when calling create_player.")
+    return { 
+      id = id, 
+      score = initial_score or 0, 
+      color = color or 7, 
+      ghost_color = ghost_color or 7, 
+      stash = {}, 
+      stash_counts = {[color or 7] = STASH_SIZE or 6} 
+    }
   end
 end
-
--- Function to get a player's ghost color
-function player_manager.get_player_ghost_color(player_id)
-  local p_instance = player_manager.get_player(player_id)
-  if p_instance then
-    return p_instance:get_ghost_color()
-  else
-    return 1 -- Default to dark blue if player not found
-  end
-end
-
--- Function to get the current number of initialized players
-function player_manager.get_player_count()
-  if not player_manager.current_players then return 0 end
-  return #player_manager.current_players
-end
-
--- Expose Player class if other modules need to create players or check type (optional)
--- Player = Player
 -->8
--- src/2.scoring.lua
--- Scoring Module
---#globals pieces player_manager ray_segment_intersect LASER_LEN _G
---#globals cos sin add ipairs del deli
-
+--scoring
 function reset_player_scores()
   if player_manager and player_manager.current_players then
     for _, player_obj in ipairs(player_manager.current_players) do
@@ -320,7 +261,6 @@ function reset_piece_states_for_scoring()
     if p_obj then
       p_obj.hits = 0
       p_obj.targeting_attackers = {}
-      -- p_obj.state = nil -- or some default state if applicable
     end
   end
 end
@@ -329,8 +269,8 @@ function _check_attacker_hit_defender(attacker_obj, defender_obj, player_manager
   local attacker_vertices = attacker_obj:get_draw_vertices()
   if not attacker_vertices or #attacker_vertices == 0 then return end
   local apex = attacker_vertices[1]
-  local dir_x = cos(attacker_obj.orientation) -- cos is global via --#globals
-  local dir_y = sin(attacker_obj.orientation) -- sin is global via --#globals
+  local dir_x = cos(attacker_obj.orientation)
+  local dir_y = sin(attacker_obj.orientation)
 
   local defender_corners = defender_obj:get_draw_vertices()
   if not defender_corners or #defender_corners == 0 then return end
@@ -386,21 +326,17 @@ function score_pieces()
   reset_player_scores()
   reset_piece_states_for_scoring()
 
-  -- Score attackers hitting defenders
-  for _, attacker_obj in ipairs(pieces) do -- Use global 'pieces' directly
+  for _, attacker_obj in ipairs(pieces) do
     if attacker_obj and attacker_obj.type == "attacker" then
-      for _, defender_obj in ipairs(pieces) do -- Use global 'pieces' directly
+      for _, defender_obj in ipairs(pieces) do
         if defender_obj and defender_obj.type == "defender" then
-          -- Pass global variables directly to the helper function
           _check_attacker_hit_defender(attacker_obj, defender_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
         end
       end
     end
   end
 
-  -- Score defenders based on incoming attackers
-  for _, p_obj in ipairs(pieces) do -- Use global 'pieces' directly
-    -- Pass global 'player_manager' directly
+  for _, p_obj in ipairs(pieces) do
     _score_defender(p_obj, player_manager)
   end
 
@@ -415,7 +351,13 @@ function score_pieces()
   pieces = remaining_pieces
 end
 
--- Renamed from score_pieces to update_game_state to reflect broader scope
+function calculate_final_scores()
+  score_pieces()
+  -- Potentially, in the future, we might want to do something additional
+  -- specific to final scoring here, like determining winners.
+  -- For now, just re-running score_pieces covers the calculation.
+end
+
 update_game_state = score_pieces
 -->8
 -- src/5.piece.lua
@@ -803,11 +745,8 @@ function place_piece(piece_params, player_obj)
   end
 end
 -->8
--- Converted Controls Module for Multi-Cursor Support
--- Handles player input and updates control-related game state for each cursor.
---#globals player_manager cursors place_piece attempt_capture original_update_game_logic_func
---#globals max min btn btnp
--- Constants for control states (optional)
+--controls
+
 local CSTATE_MOVE_SELECT = 0
 local CSTATE_ROTATE_PLACE = 1
 local CSTATE_COOLDOWN = 2
@@ -937,27 +876,88 @@ end
 -- including the main menu and in-game HUD.
 
 --#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size game_timer tostring rectfill min type pairs ipairs btnp max STASH_SIZE
-
 ui = {}
--- NP and PM can remain cached if N_PLAYERS and player_manager are set before this file loads
-local NP, PM = N_PLAYERS, player_manager
+-- Removed local caching of N_PLAYERS and player_manager (NP, PM)
+-- Functions will use global N_PLAYERS and player_manager directly for up-to-date values.
+
+-- 3D wireframe pyramid for menu background
+local pyr_vertices = {
+  {0, -0.8, 0},    -- top
+  {-1, 0.8, -1},   -- base 1
+  {1, 0.8, -1},    -- base 2
+  {1, 0.8, 1},     -- base 3
+  {-1, 0.8, 1}     -- base 4
+}
+local pyr_edges = {
+  {1,2},{1,3},{1,4},{1,5}, -- sides
+  {2,3},{3,4},{4,5},{5,2} -- base
+}
+local pyr_angle_x = 0
+local pyr_angle_y = 0
+local pyr_angle_z = 0
+
+function pyr_rotate_point(v, ax, ay, az)
+  -- Rotate around x, y, z (Euler)
+  local x, y, z = v[1], v[2], v[3]
+  -- X
+  local cy, sy = cos(ax), sin(ax)
+  y, z = y*cy-z*sy, y*sy+z*cy
+  -- Y
+  local cx, sx = cos(ay), sin(ay)
+  x, z = x*cx+z*sx, -x*sx+z*cx
+  -- Z
+  local cz, sz = cos(az), sin(az)
+  x, y = x*cz-y*sz, x*sz+y*cz
+  return {x, y, z}
+end
+
+function pyr_project_point(v, projection_scale)
+  -- Simple perspective projection
+  local viewer_z = 3
+  local px = v[1] / (viewer_z - v[3])
+  local py = v[2] / (viewer_z - v[3])
+  return 64 + px*projection_scale, 64 + py*projection_scale
+end
+
+function draw_pyramid(size, color)
+  -- Animate angles
+  pyr_angle_x += 0.01
+  pyr_angle_y += 0.013
+  pyr_angle_z += 0.008
+  -- Transform and project
+  local pts2d = {}
+  local current_projection_scale = size or 48 -- Default size if not provided
+  for i,v in ipairs(pyr_vertices) do
+    local v3 = pyr_rotate_point(v, pyr_angle_x, pyr_angle_y, pyr_angle_z)
+    local sx, sy = pyr_project_point(v3, current_projection_scale)
+    pts2d[i] = {sx, sy}
+  end
+  -- Draw edges
+  local edge_color = color or 6 -- Default color if not provided
+  for e in all(pyr_edges) do
+    local a, b = pts2d[e[1]], pts2d[e[2]]
+    line(a[1], a[2], b[1], b[2], edge_color)
+  end
+end
 
 function ui.draw_main_menu()
   cls(0)
+  draw_pyramid(48, 6) -- Call with default size 48 and color 6
   print("P8PANIC", 48, 20, 7)
   local options = {
-    "Players: " .. (menu_player_count or N_PLAYERS or 2), -- Use global menu_player_count
-    "Stash Size: " .. (menu_stash_size or STASH_SIZE or 3), -- Use global menu_stash_size
-    "Game Timer: " .. (game_timer or 3) .. " min", -- Add game timer option
+    "Players: " .. (menu_player_count or N_PLAYERS or 2),
+    "Stash Size: " .. (menu_stash_size or STASH_SIZE or 3),
+    "Game Timer: " .. (game_timer or 3) .. " min",
     "Start Game",
+    "Finish Game", -- New option
     "How To Play"
   }
   for i, opt in ipairs(options) do
-    local y = 40 + i * 10
-    local col = (menu_option == i and 11) or 7 -- Use global menu_option
+    local y = 38 + i * 9 -- Adjusted y spacing slightly for more options
+    local col = (menu_option == i and 11) or 7
     print(opt, 20, y, col)
-    if menu_option == i then -- Use global menu_option
-      print("\136", 10, y, 11) -- draw a yellow arrow (character 136)
+    if menu_option == i then
+      print("\136", 10, y, 11)
     end
   end
 end
@@ -988,8 +988,8 @@ function ui.draw_game_hud()
     { x = screen_w - margin, y = screen_h - margin - line_h, align_right = true, stash_y_multiplier = -1 }
   }
 
-  for i = 1, NP or 1 do
-    local p = PM and PM.current_players and PM.current_players[i]
+  for i = 1, (N_PLAYERS or 1) do -- Use global N_PLAYERS
+    local p = player_manager and player_manager.current_players and player_manager.current_players[i] -- Use global player_manager
     if p then
       local corner_cfg = corners[i]
       if not corner_cfg then goto continue_loop end
@@ -1065,11 +1065,53 @@ function ui.draw_game_hud()
     ::continue_loop::
   end
 end
+
+function ui.draw_winner_screen()
+  cls(0)
+  calculate_final_scores() -- Calculate final scores before displaying
+  print("GAME OVER!", 44, 25, 8)
+
+  -- Gather player scores
+  local player_scores = {}
+  if player_manager and player_manager.get_player and N_PLAYERS then
+    for i=1,N_PLAYERS do
+      local p = player_manager.get_player(i)
+      if p and p.score then
+        add(player_scores, {id=i, score=p.score})
+      end
+    end
+  end
+
+  -- Sort by score descending
+  for i=1,#player_scores-1 do
+    for j=i+1,#player_scores do
+      if player_scores[j].score > player_scores[i].score then
+        local tmp = player_scores[i]
+        player_scores[i] = player_scores[j]
+        player_scores[j] = tmp
+      end
+    end
+  end
+
+  -- Print four key/value pairs: 1st, 2nd, 3rd, 4th
+  local places = {"1st", "2nd", "3rd", "4th"}
+  for i=1,4 do
+    local ps = player_scores[i]
+    local y = 40 + i*12
+    if ps then
+      print(places[i]..": Player "..ps.id.."  Score: "..ps.score, 20, y, 7)
+    else
+      print(places[i]..": ---", 20, y, 7)
+    end
+  end
+
+  print("Press (X) to return", 28, 100, 7)
+end
  
 -- Draw the How To Play screen
 function ui.draw_how_to_play() -- Keep this instance
   cls(0)
-  print("HOW TO PLAY", 30, 20, 7)
+  print("HOW TO PLAY", 40, 20, 7)
   -- Placeholder instructions
   print("Use arrows to navigate menu", 10, 40, 7)
   print("Press (X) to select", 10, 50, 7)
@@ -1078,34 +1120,81 @@ end
 
 function ui.update_main_menu_logic() -- Renamed from _update_main_menu_logic
   -- Navigate options
-  if btnp(1) then menu_option = min(5, menu_option + 1) end -- right, increased max to 5
-  if btnp(0) then menu_option = max(1, menu_option - 1) end -- left
+  if btnp(3) then menu_option = min(6, menu_option + 1) end -- down, max option is 6
+  if btnp(2) then menu_option = max(1, menu_option - 1) end -- up
+  
   -- Adjust values
-  if menu_option == 1 then
-    if btnp(2) then menu_player_count = min(4, menu_player_count + 1) end -- up
-    if btnp(3) then menu_player_count = max(2, menu_player_count - 1) end -- down
-  elseif menu_option == 2 then
-    if btnp(2) then menu_stash_size = min(10, menu_stash_size + 1) end -- up
-    if btnp(3) then menu_stash_size = max(3, menu_stash_size - 1) end -- down
-  elseif menu_option == 3 then -- Adjust game timer
-    if btnp(2) then game_timer = min(10, game_timer + 1) end -- up, max 10 minutes
-    if btnp(3) then game_timer = max(1, game_timer - 1) end -- down, min 1 minute
+  if menu_option == 1 then -- Players
+    if btnp(1) then menu_player_count = min(4, menu_player_count + 1) end -- right (increase)
+    if btnp(0) then menu_player_count = max(2, menu_player_count - 1) end -- left (decrease)
+  elseif menu_option == 2 then -- Stash Size
+    if btnp(1) then menu_stash_size = min(10, menu_stash_size + 1) end -- right (increase)
+    if btnp(0) then menu_stash_size = max(3, menu_stash_size - 1) end -- left (decrease)
+  elseif menu_option == 3 then -- Game Timer
+    if btnp(1) then game_timer = min(10, game_timer + 1) end -- right (increase)
+    if btnp(0) then game_timer = max(1, game_timer - 1) end -- left (decrease)
   end
   -- Select option
   if btnp(5) then -- ❎ (X)
-    if menu_option == 4 then -- Adjusted start game option index
+    if menu_option == 4 then -- Start Game
       player_count = menu_player_count
       stash_count = menu_stash_size
       N_PLAYERS = menu_player_count
       STASH_SIZE = menu_stash_size
       -- game_timer is already set
       global_game_state = "in_game"
-      printh("Starting game from menu with P:"..player_count.." S:"..stash_count.." T:"..game_timer)
-    elseif menu_option == 5 then -- Adjusted how to play option index
+      printh("Menu: Start Game. P:"..player_count.." S:"..stash_count.." T:"..game_timer)
+    elseif menu_option == 5 then -- Finish Game (New Option)
+      N_PLAYERS = menu_player_count -- Set N_PLAYERS from current menu selection
+      STASH_SIZE = menu_stash_size -- Set STASH_SIZE for consistency
+
+      -- Ensure player_manager is initialized for the current N_PLAYERS setting.
+      -- This is important if "Finish Game" is hit before "Start Game" or after changing player count.
+      -- player_manager.init_players should create players with score 0 if they don't exist.
+      local needs_player_init = true -- Assume init is needed by default
+      if player_manager and player_manager.get_player then
+        local players_seem_correctly_initialized = true
+        for i=1, N_PLAYERS do
+          if not player_manager.get_player(i) then
+            players_seem_correctly_initialized = false
+            break
+          end
+        end
+        -- This check is simplified; init_players should handle making it correct for N_PLAYERS.
+        -- If player_manager.init_players is robust, we can call it to ensure state.
+      end
+      
+      if player_manager and player_manager.init_players then
+        printh("Finish Game: Ensuring players are initialized for P:"..N_PLAYERS)
+        player_manager.init_players(N_PLAYERS)
+      end
+      global_game_state = "game_over"
+      printh("Menu: Finish Game selected. Set state to game_over. Configured P:"..N_PLAYERS)
+    elseif menu_option == 6 then -- How To Play (old option index 5)
       global_game_state = "how_to_play"
     end
   end
 end
+
+local SPRITES = {
+  HEART_ICON = 208 -- Example sprite number for heart
+  -- ... other sprites
+}
+
+-- Define menu items
+ui.menu_items = {
+  {text="CONTINUE", action=function() gs.set_state("in_game") end, visible = function() return gs.current_state_name == "paused" end},
+  {text="FINISH GAME", action=function() gs.set_state("game_over") end, visible = function() return gs.current_state_name == "paused" end}, -- New item
+  {text="RETURN TO MAIN MENU", action=function() gs.set_state("main_menu") end, visible = function() return gs.current_state_name == "paused" end},
+  {text="START GAME", action=function() gs.set_state("in_game") end, visible = function() return gs.current_state_name == "main_menu" end},
+  {text="PLAYERS:", type="selector", options=config.player_options, current_idx_func=function() return config.current_players_idx end, action=function(idx) config.set_players_idx(idx) end, value_text_func=function() return config.get_players_value() end, visible = function() return gs.current_state_name == "main_menu" end},
+  {text="SET TIMER:", type="selector", options=config.timer_options, current_idx_func=function() return config.current_timer_idx end, action=function(idx) config.set_timer_idx(idx) end, value_text_func=function() return config.get_timer_value().." MIN" end, visible = function() return gs.current_state_name == "main_menu" end},
+  {text="HOW TO PLAY", action=function() gs.set_state("how_to_play") end, visible = function() return gs.current_state_name == "main_menu" end},
+  {text="FAVOURITE", action=function() favourite_current_game() end, icon=SPRITES.HEART_ICON, visible = function() return gs.current_state_name == "main_menu" end},
+  {text="RESET CART", action=function() reset_cart() end}, -- Remains visible in all menus
+  {text="SHUTDOWN", action=function() shutdown() end} -- Remains visible in all menus
+  -- Add other menu items here
+}
 -->8
 -- src/7.cursor.lua
 --#eval player_manager=player_manager,rectfill=rectfill,circfill=circfill,line=line,cos=cos,sin=sin,print=print,create_piece=create_piece
@@ -1122,18 +1211,32 @@ local default_cursor_props = {
 }
 
 function create_cursor(player_id, initial_x, initial_y)
-  local p_ghost_color = 7 -- Default color if player_manager or method is missing
-  if player_manager and player_manager.get_player_ghost_color then
-    local player = player_manager.get_player(player_id) -- Get the player object first
-    if player and player.get_ghost_color then
-      p_ghost_color = player:get_ghost_color()
-    elseif player_manager.get_player_ghost_color then -- Fallback to old direct method if exists
-      p_ghost_color = player_manager.get_player_ghost_color(player_id)
+  local p_color = 7 -- Default to white if everything else fails
+  local p_ghost_color = 7 -- Default to white
+
+  if player_manager and player_manager.get_player then
+    local player = player_manager.get_player(player_id)
+    if player then
+      if player.get_color then
+        p_color = player:get_color() -- Get primary color as a base
+      end
+      if player.get_ghost_color then
+        local ghost_color_val = player:get_ghost_color()
+        if ghost_color_val then -- Ensure ghost color is not nil
+          p_ghost_color = ghost_color_val
+        else
+          p_ghost_color = p_color -- Fallback to primary color if ghost is nil
+          printh("Warning: P"..player_id.." ghost color was nil, using primary color.")
+        end
+      else
+        p_ghost_color = p_color -- Fallback to primary color if no get_ghost_color method
+        printh("Warning: P"..player_id.." has no get_ghost_color method, using primary color.")
+      end
     else
-      printh("Warning: Could not get ghost color for P"..player_id)
+      printh("Warning: Could not get player object for P"..player_id.." for cursor color.")
     end
   else
-    printh("Warning: player_manager or get_player_ghost_color not available for cursor.")
+    printh("Warning: player_manager or get_player not available for cursor color.")
   end
   
   local cur = {
@@ -1147,7 +1250,7 @@ function create_cursor(player_id, initial_x, initial_y)
     control_state = default_cursor_props.control_state,
     pending_type = default_cursor_props.pending_type,
     pending_orientation = default_cursor_props.pending_orientation,
-    pending_color = p_ghost_color, -- Default to player's ghost color
+    pending_color = p_ghost_color, -- Use the determined ghost color
     color_select_idx = default_cursor_props.color_select_idx,
     return_cooldown = default_cursor_props.return_cooldown,
 
@@ -1212,21 +1315,24 @@ end
 --#globals original_update_game_logic_func original_update_controls_func update_game_state
 --#globals printh all cls btnp menuitem print
 
+-- Ensure global variables are accessible in this file
+if not N_PLAYERS then N_PLAYERS = 2 end  -- Default fallback
+if not table then table = table or {} end  -- Ensure table is available
+
 -- Ensure ui_handler is assigned from the global ui table from 6.ui.lua
 local ui_handler -- local to this file, assigned in _init
 
 local game_start_time = 0
 local remaining_time_seconds = 0
 
+local game_winners = {} -- Stores list of winner IDs
+local game_max_score = -1 -- Stores the max score achieved
+local processed_game_over = false -- Flag to ensure winner calculation runs once per game_over state entry
+
 ------------------------------------------
 -- Main Pico-8 Functions
 ------------------------------------------
 function _init()
-  -- Initialize engine-level managers/tables if they aren\'t already by other files
-  -- (player_manager, pieces, cursors are expected to be globals defined elsewhere or initialized here)
-  -- player_manager should be globally defined by 0.init.lua
-  -- pieces should be globally defined by 0.init.lua
-  -- cursors should be globally defined by 0.init.lua
   
   if player_manager == nil then 
     printh("CRITICAL: player_manager is nil in _init of 7.main.lua!")
@@ -1243,23 +1349,41 @@ function _init()
       draw_main_menu = function() print("NO UI - MAIN MENU", 40,60,8) end,
       draw_game_hud = function() print("NO UI - GAME HUD", 40,60,8) end,
       draw_how_to_play = function() print("NO UI - HOW TO PLAY", 20,60,8) end,
+      draw_winner_screen = function() cls(0) print("NO UI - WINNER SCREEN", 20,60,8) end,
       update_main_menu_logic = function() printh("Warning: NO UI - update_main_menu_logic not called") end
     }
   end
 
+  -- Configure pause menu items for in-game state
+
+  menuitem(1, false) -- Clear item at index 1 (e.g., default "SOUND")
+  menuitem(2, false) -- Clear item at index 2 (e.g., default "MUSIC")
+  menuitem(3, false) -- Clear item at index 3 (e.g., default "EXIT")
+
+  -- Add "Return to Main Menu" at index 1
   menuitem(1, "Return to Main Menu", function()
     global_game_state = "main_menu" 
     printh("Returning to main menu via pause menu...")
     _init_main_menu_state() 
   end)
 
-  -- Add game timer to menu item
-  menuitem(2, "Set Timer: " .. (game_timer or 3) .. " min", function()
-    -- This is a placeholder, actual timer setting is in _update_main_menu_logic
-    -- but we need a menu item for it to be visible in pause menu if desired.
-    -- Or, remove this if timer is only set from main menu.
+  -- Add "Finish Game" option at index 2
+  menuitem(2, "finish game", function() -- Capitalized label for consistency
+    -- Only allow finishing game if we're currently in a game
+    if global_game_state == "in_game" then
+      printh("Finishing game early via pause menu...")
+      -- Ensure players are properly initialized before calculating winners
+      if player_manager and player_manager.init_players then
+        player_manager.init_players(N_PLAYERS)
+      end
+      global_game_state = "game_over"
+      -- Reset the processed flag so winner calculation will run
+      processed_game_over = false
+    else
+      printh("Cannot finish game - not currently in game state")
+    end
   end)
-
+  
   if global_game_state == "main_menu" then
     _init_main_menu_state()
   else
@@ -1271,6 +1395,35 @@ function _init()
   end
 end
 
+function _calculate_and_store_winners()
+  local current_max_score = -1
+  local current_winners = {}
+  if player_manager and player_manager.get_player and N_PLAYERS then
+    for i=1, N_PLAYERS do
+      local p = player_manager.get_player(i)
+      if p and type(p.score) == "number" then
+        if p.score > current_max_score then
+          current_max_score = p.score
+          current_winners = {p.id}
+        elseif p.score == current_max_score then
+          add(current_winners, p.id)
+        end
+      end
+    end
+  end
+  game_winners = current_winners
+  game_max_score = current_max_score
+  -- printh(\"Winners calculated: \" .. table.concat(game_winners, \", \") .. \" with score: \" .. game_max_score)
+  local winners_str = ""
+  for i, winner_id in ipairs(game_winners) do
+    winners_str = winners_str .. winner_id
+    if i < #game_winners then
+      winners_str = winners_str .. ", "
+    end
+  end
+  printh("Winners calculated: " .. winners_str .. " with score: " .. game_max_score)
+end
+
 function _update()
   if global_game_state == "main_menu" then
     if ui_handler and ui_handler.update_main_menu_logic then
@@ -1278,6 +1431,7 @@ function _update()
     else
       printh("Warning: ui_handler.update_main_menu_logic not found!")
     end
+    processed_game_over = false -- Reset when returning to menu
     if global_game_state == "in_game" then
       -- N_PLAYERS and STASH_SIZE have been set by menu logic
       init_game_properly()
@@ -1285,6 +1439,7 @@ function _update()
       -- handled below
     end
   elseif global_game_state == "how_to_play" then
+    processed_game_over = false -- Reset if coming from game_over
     -- return to menu on X
     if btnp(5) then
       global_game_state = "main_menu"
@@ -1292,35 +1447,31 @@ function _update()
     end
   elseif global_game_state == "in_game" then
     _update_game_logic()
+    processed_game_over = false -- Reset flag
 
     -- Timer logic
     if remaining_time_seconds > 0 then
       remaining_time_seconds -= 1/30 -- Pico-8 runs at 30 FPS
       if remaining_time_seconds <= 0 then
         remaining_time_seconds = 0
-        global_game_state = "game_over"
         printh("Game Over! Time is up.")
-        -- Determine winner(s) - can be moved to a separate function
-        local max_score = -1
-        local winners = {}
-        for i=1, N_PLAYERS do
-          local p = player_manager.get_player(i)
-          if p then
-            if p.score > max_score then
-              max_score = p.score
-              winners = {p.id}
-            elseif p.score == max_score then
-              add(winners, p.id)
-            end
-          end
+        if update_game_state then
+          update_game_state() -- Recalculate scores one last time
         end
-        printh("Winner(s): " .. table.concat(winners, ", ") .. " with score: " .. max_score)
-        -- You might want to display this on screen too
+        global_game_state = "game_over"
+        -- Winner calculation will be handled by the "game_over" state block below
       end
     end
   elseif global_game_state == "game_over" then
+    if not processed_game_over then
+      -- This block ensures player data is consistent if "Finish Game" was selected from menu
+      -- The menu logic in 6.ui.lua already attempts to call player_manager.init_players(N_PLAYERS)
+      -- before setting this state.
+      _calculate_and_store_winners()
+      processed_game_over = true
+    end
     -- Wait for a button press to return to main menu
-    if btnp(5) then -- (X) button
+    if btnp(5) or btnp(4) then -- (X) or (O) button
       global_game_state = "main_menu"
       _init_main_menu_state()
     end
@@ -1343,17 +1494,15 @@ function _draw()
   elseif global_game_state == "in_game" then
     _draw_game_screen()
   elseif global_game_state == "game_over" then
-    cls(0)
-    print("GAME OVER!", 48, 50, 8)
-    -- Display winner information (this is basic, enhance as needed)
-    local max_score = -1
-    local winner_text = "WINNER(S): "
-    -- Recalculate or store winners from _update
-    -- For simplicity, let's assume winners are stored in a global or passed
-    -- For now, just a generic message
-    -- TODO: Display actual winners and scores
-    print("Time is up!", 45, 60, 7)
-    print("Press (X) to return", 28, 100, 7)
+    if ui_handler and ui_handler.draw_winner_screen then
+      ui_handler.draw_winner_screen() -- This function will use game_winners and game_max_score
+    else
+      -- Fallback minimal display if ui_handler or function is missing
+      cls(0) 
+      print("GAME OVER (NO UI)", 30, 50, 8)
+      print("Winner data not shown.", 20, 60, 7)
+      print("Press (X) to return", 28, 100, 7)
+    end
   end
 end
 
@@ -1368,12 +1517,6 @@ function _init_main_menu_state()
   -- game_timer is already a global, potentially set by previous menu interaction
   printh("Main menu state initialized: P=" .. menu_player_count .. " S=" .. menu_stash_size .. " T:" .. game_timer)
 end
-
--- This function is now in 6.ui.lua, but if you need overrides or specific logic here, keep it.
--- For now, assuming 6.ui.lua handles menu updates.
--- function _update_main_menu_logic()
---   -- ... (logic moved to 6.ui.lua) ...
--- end
 
 ------------------------------------------
 -- Game Specific Logic (Initialization, Update, Draw)
@@ -1481,33 +1624,4 @@ function _draw_game_screen()
     print("Error: ui_handler.draw_game_hud not found",0,0,7)
   end
 end
-
--- Ensure create_player is globally available if Player:new is not directly exposed
--- and player_manager.init_players relies on a global create_player
--- This is usually defined in 1.player.lua or similar.
--- If Player:new is used directly by player_manager.init_players, this isn\'t needed here.
--- function create_player(id, stash_size_val) -- Example, ensure this matches actual create_player
---   if Player and Player.new then
---     return Player:new(id, 0, player_manager.colors[id], player_manager.ghost_colors[id])
---   end
---   printh("Error: Player or Player:new not found for create_player")
---   return {id=id, score=0, color=7, stash={}} -- Dummy
--- end
-__gfx__
-cccccccccccccccc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-ccccccccccccccc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-cccccccccccccc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-ccccccccccccc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-cccccccccccc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-ccccccccccc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-cccccccccc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-ccccccccc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88888888888888880000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88888888888888800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88888888888888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88888888888880000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88888888888800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88888888888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88888888880000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88888888800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
