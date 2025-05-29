@@ -167,7 +167,7 @@ function internal_update_game_logic()
     if p_item.type == "defender" then
       p_item.hits = 0
       p_item.targeting_attackers = {}
-      p_item.state = "neutral"
+      -- p_item.state = "neutral" -- REMOVED: State will persist or be set by creation/scoring
       p_item.captured_flag = false -- Reset captured flag
     end
   end
@@ -182,6 +182,9 @@ end
 
 function go_to_state(new_state)
   if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
+    local current_game_stash_size = STASH_SIZE -- Capture STASH_SIZE once for this game start
+    printh("GO_TO_STATE: CAPTURED STASH_SIZE="..current_game_stash_size) -- DEBUG
+
     pieces = {} -- Clear existing pieces
     
     -- Initialize players based on menu selection
@@ -195,7 +198,9 @@ function go_to_state(new_state)
       if p then 
         p.score = 0
         p.stash = {} 
-        p.stash[p:get_color()] = STASH_SIZE -- Use the stash size from the menu
+        -- Use the locally captured stash size
+        p.stash[p:get_color()] = current_game_stash_size 
+        printh("P"..i.." STASH INIT: C="..p:get_color().." SZ="..current_game_stash_size.." CT="..p.stash[p:get_color()]) -- DEBUG
       end
     end
     if original_update_game_logic_func then original_update_game_logic_func() end

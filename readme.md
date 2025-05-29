@@ -1,27 +1,54 @@
-Pyramid panic is a game played by 3-4 players that focuses on redirecting attacks
+## Pyramid Panic – A Game of Tactical Geometry  🚀
 
-All players have cursors with the following three modes
+Hey PICO‑8 pals! I’m brewing a snappy 3–4‑player skirmish where every pyramid you fling can flip the table. Try it, break it, tell me what hurts!
 
-attacker- points a pyramid that is 8px high toward a defender. an attacker may only be places when successfully pointed at a defender. the player may choose to point an attacker at their own defender, in which case that attack scores no points. (It does, however, count for purposes of calculating overcharge, below)
+---
 
-defender - places a defender. A player must _always_ have a live defender in play; if they fail to place a defender within 10 seconds of losing their last defender, they are out of the game.
+### Quick Pitch
+Redirect lasers? Nah—redirect **pyramids**! Stack attacks, juggle defenses, and overload your rivals before the buzzer.
 
-- capture - allows for the capture and re-placement of enemy pieces attacking your defender.
+---
 
-after every piece placement, recalculate the score of the game.
+### Controls
+Each player drives one cursor with **three modes** (cycle with ⬅️ / ➡️):
 
+| Mode | What it does |
+| ---- | ------------ |
+| **Attack** | Plant an 8‑pixel pyramid aimed at any defender. Hitting your own defender scores **0** but still fuels Overcharge. |
+| **Defend** | Keep a defender alive at all times. Lose it and you’ve got **10 s** to drop another or you’re out. |
+| **Capture** | Triggered by Overcharge—snatch an attacker pointed at your defender, then redeploy it anywhere. |
 
-# Scoring
+---
 
-Every piece placed either scores 1 point or 0 points.
+### Scoring
+We recalc right after every placement:
 
-- attackers succeed if there are 2+ attackers pointed toward the same defender. if that attacker is pointed at a defender of its own color, it scores no points.
-- Defenders succeed if there are 0-1 attackers pointed at the same defender.
+* **Attackers** earn **1 pt** if **2 +** attackers point at the same defender **of another color**.  
+* **Defenders** earn **1 pt** if facing **0 – 1** attackers.  
+* Everything else = **0**.
 
+Each player totes **6 pieces** → **36 pyramids** max in a 4‑player frenzy.
 
-Every player has six pieces to place, totalling 36 for a game with max players.
+---
 
-# Overcharge (capture)
-if a defender has 3+ pieces pointed at it, that defender is considered _overcharged_ and entitles its owner to perform a capture action. from the capture cursor, the defender player may pick up any attacker attacking that defender. they may then place that piece, maintaining its color, anywhere on the playfield.
+### Overcharge ⚡
+Three or more attackers locking on one defender? That defender **Overcharges**. Its owner gets an instant **Capture** move before play rolls on.
 
-The game continues for 3 minutes or until player 1 ends the game early by holding both buttons down for five seconds. Highest score wins.
+---
+
+### Endgame
+* **3‑minute** round timer, **or**
+* Player 1 may end early by holding both buttons **5 s**.
+
+Highest score wins. Tie = sudden‑death; first point steals the crown.
+
+---
+
+### State of the Panic
+Alpha build live! I need your hot takes on:
+
+* Attack/defense balance  
+* Is six pieces each spicy enough?  
+* Can you always tell which cursor mode you’re in?  
+
+Drop feedback, gifs, and victory dances below. Salty taunts encouraged.

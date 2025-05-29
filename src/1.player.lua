@@ -1,5 +1,5 @@
 -- src/4.player.lua
---#globals player_manager
+--#globals player_manager STASH_SIZE
 --#globals player_manager
 
 local Player = {}
@@ -67,9 +67,6 @@ function Player:use_piece_from_stash(piece_color)
   end
   return false
 end
-
--- Module-level table to hold player-related functions and data
-player_manager = {}
 
 player_manager.colors = { -- Changed : to .
   [1] = 12, -- Player 1: Light Blue
