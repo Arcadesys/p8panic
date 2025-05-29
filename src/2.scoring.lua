@@ -2,6 +2,7 @@
 -- Scoring Module
 --#globals pieces player_manager ray_segment_intersect LASER_LEN _G
 --#globals cos sin add ipairs del deli
+--#globals player_manager ray_segment_intersect LASER_LEN
 
 function reset_player_scores()
   if player_manager and player_manager.current_players then
@@ -71,7 +72,6 @@ function _score_defender(p_obj, player_manager_param)
     if p_obj.targeting_attackers then
       num_total_attackers_targeting = #p_obj.targeting_attackers
     end
-    p_obj.dbg_target_count = num_total_attackers_targeting
 
     if num_total_attackers_targeting <= 1 then
       local defender_player = player_manager_param.get_player(p_obj.owner_id)
