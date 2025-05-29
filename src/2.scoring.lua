@@ -50,15 +50,19 @@ function _check_attacker_hit_piece(attacker_obj, target_obj, player_manager_para
         attacker_player:add_score(1)
       end
 
+      -- Update state of the target_obj based on hits
       if target_obj.type == "defender" then
-        if target_obj.hits == 1 then
-          target_obj.state = "successful"
+        if target_obj.hits >= 3 then
+          target_obj.state = "overcharged"
         elseif target_obj.hits == 2 then
           target_obj.state = "unsuccessful"
-        elseif target_obj.hits >= 3 then
-          target_obj.state = "overcharged"
+        elseif target_obj.hits == 1 then
+          target_obj.state = "successful"
         end
+        -- If a defender has 0 hits, its state is not changed here; it retains its prior state (e.g., from creation or previous scoring).
       end
+      -- Attacker pieces do not change their state to 'overcharged', 'unsuccessful', or 'successful' based on being hit.
+      -- Their state (e.g., 'neutral') would be managed by other game mechanics if needed.
       return true
     end
   end

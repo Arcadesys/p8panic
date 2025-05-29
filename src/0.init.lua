@@ -20,7 +20,7 @@ original_update_controls_func = nil
 -------------------------------------------
 --#globals player_manager create_piece pieces LASER_LEN PLAYER_COUNT cursors CAPTURE_RADIUS_SQUARED
 --#globals ray_segment_intersect attempt_capture -- Core helpers defined in this file
---#globals update_controls score_pieces place_piece legal_placement -- Functions from modules
+--#globals update_controls score_pieces place_piece legal_placement create_cursor -- Functions from modules
 --#globals internal_update_game_logic original_update_game_logic_func original_update_controls_func
 --#globals GAME_STATE_MENU GAME_STATE_PLAYING current_game_state
 --#globals GAME_TIMER GAME_TIMER_MAX
@@ -132,17 +132,33 @@ function init_cursors(num_players)
       sp = {x = 4 + (i-1)*10, y = 4} -- Simple fallback
     end
 
-    local p_obj = player_manager.get_player(i)
-    cursors[i] = {
-      x = sp.x, y = sp.y,
-      spawn_x = sp.x, spawn_y = sp.y,
-      control_state = 0,       -- 0: Movement/Selection, 1: Rotation/Placement, 2: Cooldown/Return
-      pending_type = "defender",  -- "defender", "attacker", "capture"
-      pending_color = (p_obj and p_obj:get_ghost_color()) or 7,
-      pending_orientation = 0,
-      return_cooldown = 0,
-      color_select_idx = 1 -- For cycling stash colors during placement
-    }
+    -- Call create_cursor from 7.cursor.lua to create the cursor object
+    -- This object will have the correct draw method.
+    if create_cursor then
+      cursors[i] = create_cursor(i, sp.x, sp.y)
+      -- Initialize other properties if create_cursor doesn't set them all,
+      -- though ideally create_cursor should handle all necessary defaults.
+      -- For example, if create_cursor doesn't set spawn_x/spawn_y:
+      -- if cursors[i] then
+      --   cursors[i].spawn_x = sp.x
+      --   cursors[i].spawn_y = sp.y
+      -- end
+    else
+      printh("ERROR: create_cursor function is not defined! Cannot initialize cursors properly.")
+      -- Fallback to basic table if create_cursor is missing (will lack the advanced draw method)
+      cursors[i] = {
+        id = i,
+        x = sp.x, y = sp.y,
+        spawn_x = sp.x, spawn_y = sp.y,
+        control_state = 0,
+        pending_type = "defender",
+        pending_color = 7, -- Simplified fallback
+        pending_orientation = 0,
+        return_cooldown = 0,
+        color_select_idx = 1,
+        draw = function() printh("Fallback cursor draw for P"..i) end -- Basic fallback draw
+      }
+    end
   end
 end
 
@@ -383,41 +399,17 @@ function draw_playing_state_elements()
     end
   end
   
-  for i, cur in ipairs(cursors) do
-    local current_player_obj = player_manager.get_player(i)
-    if not current_player_obj then goto next_cursor_draw end -- Skip if no player object
-
-    -- In placement mode, use the selected color for the ghost piece
-    local cursor_draw_color = cur.pending_color or ((current_player_obj and current_player_obj:get_ghost_color()) or 7)
-
-    if cur.control_state == 0 or cur.control_state == 2 then
-      if cur.pending_type == "defender" then
-        rect(cur.x, cur.y, cur.x + 7, cur.y + 7, cursor_draw_color)
-      elseif cur.pending_type == "attacker" then
-        local cx, cy = cur.x + 4, cur.y + 4
-        line(cx + 4, cy, cx - 2, cy - 3, cursor_draw_color)
-        line(cx - 2, cy - 3, cx - 2, cy + 3, cursor_draw_color)
-        line(cx - 2, cy + 3, cx + 4, cy, cursor_draw_color)
-      elseif cur.pending_type == "capture" then
-        local cx, cy = cur.x + 4, cur.y + 4
-        circfill(cx,cy,3,cursor_draw_color) -- Changed capture cursor to a circle
-        -- line(cx - 2, cy, cx + 2, cy, cursor_draw_color)
-        -- line(cx, cy - 2, cx, cy + 2, cursor_draw_color)
-      end
-    elseif cur.control_state == 1 then
-      local ghost_params = {
-        owner_id = i, type = cur.pending_type,
-        position = { x = cur.x + 4, y = cur.y + 4 },
-        orientation = cur.pending_orientation
-      }
-      local ghost_piece_obj = create_piece(ghost_params)
-      if ghost_piece_obj then
-        ghost_piece_obj.is_ghost = true
-        ghost_piece_obj.ghost_color_override = cursor_draw_color -- Use the calculated cursor_draw_color
-        ghost_piece_obj:draw()
+  -- Draw cursors using their own draw method
+  for i, cur_obj in ipairs(cursors) do
+    if cur_obj and cur_obj.draw then
+      cur_obj:draw() -- This will now call the draw method from 7.cursor.lua
+    else
+      if cur_obj then
+        printh("P"..i.." CURSOR: Object exists but draw method is missing!")
+      else
+        printh("P"..i.." CURSOR: Object is nil!")
       end
     end
-    ::next_cursor_draw::
   end
 
   local margin = 2
