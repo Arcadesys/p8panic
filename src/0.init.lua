@@ -1,3 +1,14 @@
+function finish_game_menuitem()
+  if current_game_state == GAME_STATE_PLAYING then
+    -- Final scoring and move to gameover state
+    if score_pieces then score_pieces() end
+    current_game_state = GAME_STATE_GAMEOVER
+    GAME_TIMER = 0
+    gameover_timer = 2 -- 2 seconds pause before showing scores
+  end
+end
+
+-- Register the menuitem in _init
 ---@diagnostic disable: undefined-global
 -- p8panic - A game of tactical geometry
 
@@ -25,8 +36,12 @@ original_update_controls_func = nil
 --#globals GAME_STATE_MENU GAME_STATE_PLAYING current_game_state
 --#globals GAME_TIMER GAME_TIMER_MAX
 
--- Game timer constants
-GAME_TIMER_MAX = 180 -- 180-second game rounds
+
+-- Game timer configuration
+ROUND_TIME_MIN = 120    -- 2 minutes
+ROUND_TIME_MAX = 600    -- 10 minutes
+ROUND_TIME = 180        -- Default round time (seconds)
+GAME_TIMER_MAX = ROUND_TIME
 GAME_TIMER = GAME_TIMER_MAX
 
 -- CAPTURE_RADIUS_SQUARED = 64 -- (8*8) For capture proximity check -- Already defined above
@@ -163,9 +178,10 @@ function init_cursors(num_players)
 end
 
 -- Game States
+
 GAME_STATE_MENU = 0
 GAME_STATE_PLAYING = 1
--- GAME_STATE_GAME_OVER = 2 -- Placeholder for future
+GAME_STATE_GAMEOVER = 2
 
 current_game_state = GAME_STATE_MENU -- Start in the menu
 
@@ -196,6 +212,7 @@ function internal_update_game_logic()
   end
 end
 
+
 function go_to_state(new_state)
   if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
     local current_game_stash_size = STASH_SIZE -- Capture STASH_SIZE once for this game start
@@ -207,6 +224,7 @@ function go_to_state(new_state)
     player_manager.init_players(PLAYER_COUNT)
     
     init_cursors(player_manager.get_player_count()) -- Cursors are initialized on game start
+    GAME_TIMER_MAX = ROUND_TIME
     GAME_TIMER = GAME_TIMER_MAX -- Reset game timer
     
     for i=1, player_manager.get_player_count() do
@@ -226,6 +244,8 @@ end
 
 
 function _init()
+  -- Register Pico-8 menuitem for finishing the game
+  menuitem(1, "Finish Game", finish_game_menuitem)
   if not player_manager then
     printh("ERROR: player_manager is NIL in _init()", true) -- Debug print
   end
@@ -265,20 +285,18 @@ function _init()
 end
 
 
+
 function update_menu_state()
-  -- Menu has two options: stash size and player count
-  -- Use up/down to switch between options, left/right to adjust values
-  
-  -- Track which menu item is selected (1=stash size, 2=player count)
+  -- Menu has three options: stash size, player count, round time
   if not menu_selection then menu_selection = 1 end
-  
+
   -- Navigate between menu options with up/down
   if btnp(⬆️) then
     menu_selection = max(1, menu_selection - 1)
   elseif btnp(⬇️) then
-    menu_selection = min(2, menu_selection + 1)
+    menu_selection = min(3, menu_selection + 1)
   end
-  
+
   -- Adjust the selected option with left/right
   if menu_selection == 1 then
     -- Adjust stash size
@@ -294,13 +312,21 @@ function update_menu_state()
     elseif btnp(➡️) then
       PLAYER_COUNT = min(4, PLAYER_COUNT + 1)
     end
+  elseif menu_selection == 3 then
+    -- Adjust round time
+    if btnp(⬅️) then
+      ROUND_TIME = max(ROUND_TIME_MIN, ROUND_TIME - 30)
+    elseif btnp(➡️) then
+      ROUND_TIME = min(ROUND_TIME_MAX, ROUND_TIME + 30)
+    end
   end
-  
+
   -- Start game
   if btnp(❎) or btnp(🅾️) then
     go_to_state(GAME_STATE_PLAYING)
   end
 end
+
 
 function update_playing_state()
   -- Update game controls
@@ -309,7 +335,7 @@ function update_playing_state()
   else 
     printh("Error: original_update_controls_func is nil in update_playing_state!") 
   end
-  
+
   -- Update game logic - carefully wrapped to avoid errors
   if original_update_game_logic_func then
     if type(original_update_game_logic_func) == "function" then
@@ -320,25 +346,43 @@ function update_playing_state()
   else 
     printh("Error: original_update_game_logic_func is nil in update_playing_state!") 
   end
-  
+
   -- Update game timer (decrease by 1/30th of a second each frame)
   GAME_TIMER = max(0, GAME_TIMER - (1/30))
-  
+
   -- Check for game over condition when timer runs out
-  if GAME_TIMER <= 0 then
-    -- TODO: Implement game over state transition
-    -- For now, just restart the timer
-    GAME_TIMER = GAME_TIMER_MAX
+  if GAME_TIMER <= 0 and current_game_state == GAME_STATE_PLAYING then
+    -- Final scoring and move to gameover state
+    if score_pieces then score_pieces() end
+    current_game_state = GAME_STATE_GAMEOVER
+    GAME_TIMER = 0
+    gameover_timer = 2 -- 2 seconds pause before showing scores
   end
 end
+
 
 function _update()
   if current_game_state == GAME_STATE_MENU then
     update_menu_state()
   elseif current_game_state == GAME_STATE_PLAYING then
-    update_playing_state() -- Call the playing state update function
+    update_playing_state()
+  elseif current_game_state == GAME_STATE_GAMEOVER then
+    update_gameover_state()
   end
 end
+
+function update_gameover_state()
+  -- Decrement the gameover pause timer if active
+  if gameover_timer and gameover_timer > 0 then
+    gameover_timer = max(0, gameover_timer - (1/30))
+    return
+  end
+  -- Only allow returning to menu after timer expires
+  if btnp(❎) or btnp(🅾️) then
+    go_to_state(GAME_STATE_MENU)
+  end
+end
+
 
 
 
@@ -347,19 +391,15 @@ function draw_menu_state()
   print("P8PANIC", 50, 40, 7)
   print("PRESS X OR O", 40, 54, 8)
   print("TO START", 50, 62, 8)
-  -- ensure menu_selection
   if not menu_selection then menu_selection = 1 end
-  -- highlight colors
   local stash_color = (menu_selection == 1) and 7 or 11
   local player_color = (menu_selection == 2) and 7 or 11
-  -- stash size option
-  print((menu_selection == 1 and ">" or " ").." STASH SIZE: "..STASH_SIZE,
-        28, 80, stash_color)
-  -- player count option
-  print((menu_selection == 2 and ">" or " ").." PLAYERS: "..PLAYER_COUNT,
-        28, 90, player_color)
-  -- controls help icons
-  print("\x8e/\x91: ADJUST \x83/\x82: SELECT", 16, 110, 6) -- controls help icons
+  local timer_color = (menu_selection == 3) and 7 or 11
+  print((menu_selection == 1 and ">" or " ").." STASH SIZE: "..STASH_SIZE, 28, 80, stash_color)
+  print((menu_selection == 2 and ">" or " ").." PLAYERS: "..PLAYER_COUNT, 28, 90, player_color)
+  local minstr = flr(ROUND_TIME/60)
+  local secstr = (ROUND_TIME%60 < 10 and "0" or "")..(ROUND_TIME%60)
+  print((menu_selection == 3 and ">" or " ").." ROUND TIME: "..minstr..":"..secstr, 28, 100, timer_color)
 end
 
 function draw_playing_state_elements()
@@ -406,13 +446,50 @@ function draw_playing_state_elements()
   end
 end
 
+
+function draw_gameover_state()
+  cls(0)
+  map(0, 0, 0, 0, 16, 16, 0)
+  draw_playing_state_elements()
+  print("FINISH!", 52, 60, 7)
+  if not gameover_timer or gameover_timer <= 0 then
+    -- Sort players by score (highest first)
+    local sorted_players = {}
+    for i = 1, player_manager.get_player_count() do
+      local p = player_manager.get_player(i)
+      if p then
+        add(sorted_players, {player = p, id = i})
+      end
+    end
+    -- Sort by score descending
+    for i = 1, #sorted_players - 1 do
+      for j = i + 1, #sorted_players do
+        if sorted_players[j].player:get_score() > sorted_players[i].player:get_score() then
+          local temp = sorted_players[i]
+          sorted_players[i] = sorted_players[j]
+          sorted_players[j] = temp
+        end
+      end
+    end
+    -- Display sorted players
+    for i = 1, #sorted_players do
+      local p = sorted_players[i].player
+      local pid = sorted_players[i].id
+      local score_text = "P" .. pid .. ": " .. p:get_score()
+      print(score_text, 64 - #score_text * 2, 70 + i * 8, p:get_color())
+    end
+    print("Press X or O to return", 28, 100, 6)
+  end
+end
+
 function _draw()
   cls(0)
-  -- Draw background UI map
   map(0, 0, 0, 0, 16, 16,0)
   if current_game_state == GAME_STATE_MENU then
     draw_menu_state()
   elseif current_game_state == GAME_STATE_PLAYING then
     draw_playing_state_elements()
+  elseif current_game_state == GAME_STATE_GAMEOVER then
+    draw_gameover_state()
   end
 end
