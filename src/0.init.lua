@@ -26,7 +26,7 @@ original_update_controls_func = nil
 --#globals GAME_TIMER GAME_TIMER_MAX
 
 -- Game timer constants
-GAME_TIMER_MAX = 90 -- 90-second game rounds
+GAME_TIMER_MAX = 180 -- 180-second game rounds
 GAME_TIMER = GAME_TIMER_MAX
 
 -- CAPTURE_RADIUS_SQUARED = 64 -- (8*8) For capture proximity check -- Already defined above
@@ -115,10 +115,10 @@ end
 -- Initialize cursors for N players; they spawn in different screen corners.
 function init_cursors(num_players)
   local all_possible_spawn_points = {
-    {x = 4, y = 4},                -- P1: top-left
-    {x = 128 - 12, y = 4},           -- P2: top-right
-    {x = 4, y = 128 - 12},            -- P3: bottom-left
-    {x = 128 - 12, y = 128 - 12}     -- P4: bottom-right
+    {x = 18, y = 18},                -- P1: just outside top-left UI
+    {x = 128 - 18 - 1, y = 18},      -- P2: just outside top-right UI
+    {x = 18, y = 128 - 18 - 1},      -- P3: just outside bottom-left UI
+    {x = 128 - 18 - 1, y = 128 - 18 - 1} -- P4: just outside bottom-right UI
   }
 
   cursors = {} -- Clear existing cursors before re-initializing
@@ -341,102 +341,66 @@ function _update()
 end
 
 
+
 function draw_menu_state()
+  -- main title and prompt
   print("P8PANIC", 50, 40, 7)
   print("PRESS X OR O", 40, 54, 8)
   print("TO START", 50, 62, 8)
-  
-  -- Calculate colors based on selection
-  local stash_color = 11
-  local player_color = 11
-  
-  -- Make sure menu_selection is initialized
-  if not menu_selection then 
-    menu_selection = 1 
-  end
-  
-  if menu_selection == 1 then
-    stash_color = 7 -- Highlight with white when selected
-  elseif menu_selection == 2 then
-    player_color = 7 -- Highlight with white when selected
-  end
-  
-  -- Draw stash size option
-  if menu_selection == 1 then
-    print("> STASH SIZE: "..STASH_SIZE, 28, 80, stash_color)
-  else
-    print("  STASH SIZE: "..STASH_SIZE, 28, 80, stash_color)
-  end
-  
-  -- Draw player count option
-  if menu_selection == 2 then
-    print("> PLAYERS: "..PLAYER_COUNT, 28, 90, player_color)
-  else
-    print("  PLAYERS: "..PLAYER_COUNT, 28, 90, player_color)
-  end
-  
-  -- Draw controls help
-  print("\x8e/\x91: ADJUST \x83/\x82: SELECT", 16, 110, 6) -- ⬅️/➡️ and ⬆️/⬇️ icons
+  -- ensure menu_selection
+  if not menu_selection then menu_selection = 1 end
+  -- highlight colors
+  local stash_color = (menu_selection == 1) and 7 or 11
+  local player_color = (menu_selection == 2) and 7 or 11
+  -- stash size option
+  print((menu_selection == 1 and ">" or " ").." STASH SIZE: "..STASH_SIZE,
+        28, 80, stash_color)
+  -- player count option
+  print((menu_selection == 2 and ">" or " ").." PLAYERS: "..PLAYER_COUNT,
+        28, 90, player_color)
+  -- controls help icons
+  print("\x8e/\x91: ADJUST \x83/\x82: SELECT", 16, 110, 6) -- controls help icons
 end
 
 function draw_playing_state_elements()
-  -- Draw game timer at the top center in MM:SS format
-  local total_secs = flr(GAME_TIMER)
-  local mins = flr(total_secs / 60)
-  local secs = total_secs % 60
-  local timer_str = mins .. ":" .. (secs < 10 and "0" or "") .. secs
-  local timer_x = 62 - #timer_str * 2
-  local timer_color = 7 -- Default white
-  if GAME_TIMER < 30 then timer_color = 8 end -- Red for low time
-  print(timer_str, timer_x, 2, timer_color)
-  
-  -- Draw pieces
-  for _, piece_obj in ipairs(pieces) do
-    if piece_obj and piece_obj.draw then
-      piece_obj:draw()
-      -- Debug display of attacker count removed
-      -- No longer showing numbers above defenders
-    end
-  end
-  
-  -- Draw cursors using their own draw method
-  for i, cur_obj in ipairs(cursors) do
-    if cur_obj and cur_obj.draw then
-      cur_obj:draw() -- This will now call the draw method from 7.cursor.lua
-    else
-      if cur_obj then
-        printh("P"..i.." CURSOR: Object exists but draw method is missing!")
-      else
-        printh("P"..i.." CURSOR: Object is nil!")
-      end
-    end
-  end
-
-  local margin = 2
-  local font_width = 4
-  local font_height = 5
-  for i=1, player_manager.get_player_count() do
-    local p_obj = player_manager.get_player(i)
-    if p_obj then
-      local score_txt = p_obj:get_score() .. ""
-      local p_color = p_obj:get_color()
-      -- Draw score in corner
-      local x, y = margin, margin
-      if i == 1 then x, y = margin, margin
-      elseif i == 2 then x, y = 128 - margin - #score_txt * font_width, margin
-      elseif i == 3 then x, y = margin, 128 - margin - font_height
-      elseif i == 4 then x, y = 128 - margin - #score_txt * font_width, 128 - margin - font_height
-      end
-      print(score_txt, x, y, p_color)
-      -- Draw compact stash
-      local stash_y = y + font_height + 1
-      
-      for color, count in pairs(p_obj.stash) do
-        if count > 0 then
-          -- Draw color and count (e.g., "○5" in color 8)
-          print("○"..count, x, stash_y, color)
-          stash_y += font_height - 1 -- Slightly tighter spacing
+  -- Draw game timer in MM:SS
+  local secs = flr(GAME_TIMER)
+  local timer_str = flr(secs/60) .. ":" .. (secs%60 < 10 and "0" or "") .. (secs%60)
+  print(timer_str, 62 - #timer_str*2, 2, GAME_TIMER < 30 and 8 or 7)
+  -- Draw pieces and cursors
+  for _,o in ipairs(pieces) do if o.draw then o:draw() end end
+  for _,c in ipairs(cursors) do if c.draw then c:draw() end end
+  -- Draw stash bars for each player
+  local m,fw,fh,bh,bw,bs,nb = 2,4,5,8,2,1,4
+  for i=1,player_manager.get_player_count() do
+    local p = player_manager.get_player(i)
+    if p then
+      local s = tostr(p:get_score())
+      local sw = #s*fw
+      local tw = nb*bw + (nb-1)*bs
+      local block_w = max(sw,tw)
+      local ax = (i==2 or i==4) and (128-m-block_w) or m
+      local ay = (i>=3) and (128-m-(fh+2+bh)) or m
+      -- score
+      print(s, ax + ((block_w-sw) * ((i==2 or i==4) and 1 or 0)), ay, p:get_color())
+      -- bars
+      local bx = (i==2 or i==4) and (ax + block_w - tw) or ax
+      local by = ay + fh + 1
+      for j=1,nb do
+        local col = player_manager.colors[j] or 0
+        local cnt = p.stash[col] or 0
+        local h = flr(cnt / STASH_SIZE * bh)
+        h = mid(0,h,bh)
+        if i==1 or i==2 then
+          -- Top players: bars grow down from just below score
+          if h>0 then rectfill(bx,by,bx+bw-1,by+h-1,col)
+          else line(bx,by,bx+bw-1,by,1) end
+        else
+          -- Bottom players: bars grow up from bottom as before
+          if h>0 then rectfill(bx,by+(bh-h),bx+bw-1,by+bh-1,col)
+          else line(bx,by+bh-1,bx+bw-1,by+bh-1,1) end
         end
+        bx += bw + bs
       end
     end
   end
@@ -444,6 +408,8 @@ end
 
 function _draw()
   cls(0)
+  -- Draw background UI map
+  map(0, 0, 0, 0, 16, 16,0)
   if current_game_state == GAME_STATE_MENU then
     draw_menu_state()
   elseif current_game_state == GAME_STATE_PLAYING then
