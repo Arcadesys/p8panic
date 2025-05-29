@@ -2,7 +2,7 @@
 -- Placement Module
 --#globals create_piece pieces ray_segment_intersect LASER_LEN player_manager score_pieces
 --#globals cos sin max min sqrt abs add all ipairs
---#globals N_PLAYERS -- Though not directly used, it's part of the context of 0.init
+--#globals PLAYER_COUNT -- Though not directly used, it's part of the context of 0.init
 
 -- Cached math functions (assuming they are available globally from 0.init.lua or PICO-8 defaults)
 -- local cos, sin = cos, sin -- Or just use them directly

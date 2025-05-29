@@ -1,5 +1,8 @@
 -- src/5.piece.lua
 
+--#globals pieces player_manager ray_segment_intersect LASER_LEN 
+--#globals cos sin ipairs
+
 -- Forward declarations for metatables if needed
 Piece = {}
 Piece.__index = Piece
@@ -102,6 +105,9 @@ end
 function Attacker:new(o)
   o = o or {}
   o.type = "attacker"
+  o.hits = 0
+  o.state = "neutral" -- "neutral", "unsuccessful", "overcharged"
+  o.targeting_attackers = {}
   -- Attacker-specific initializations
   return Piece.new(self, o) -- Call base constructor
 end
@@ -122,34 +128,36 @@ function Attacker:draw()
   local laser_end_y = apex.y + dir_y * LASER_LEN
   local closest_hit_t = LASER_LEN
 
-  local hit_defender_state = nil
+  local hit_piece_state = nil
+  local hit_piece_type = nil
 
-  -- Check for intersections with all defenders
+  -- Check for intersections with all pieces (defenders and attackers)
   if pieces then
     for _, other_piece in ipairs(pieces) do
-      if other_piece.type == "defender" then
-        local def_corners = other_piece:get_draw_vertices()
-        for j = 1, #def_corners do
-          local k = (j % #def_corners) + 1
+      if other_piece ~= self then -- Don't check against self
+        local piece_corners = other_piece:get_draw_vertices()
+        for j = 1, #piece_corners do
+          local k = (j % #piece_corners) + 1
           local ix, iy, t = ray_segment_intersect(
             apex.x, apex.y, dir_x, dir_y,
-            def_corners[j].x, def_corners[j].y, def_corners[k].x, def_corners[k].y
+            piece_corners[j].x, piece_corners[j].y, piece_corners[k].x, piece_corners[k].y
           )
           if t and t >= 0 and t < closest_hit_t then
             closest_hit_t = t
             laser_end_x = ix
             laser_end_y = iy
-            hit_defender_state = other_piece.state -- Store the state of the hit defender
+            hit_piece_state = other_piece.state -- Store the state of the hit piece
+            hit_piece_type = other_piece.type
           end
         end
       end
     end
   end
 
-  -- Adjust laser color based on hit defender's state
-  if hit_defender_state == "unsuccessful" then
+  -- Adjust laser color based on hit piece's state
+  if hit_piece_state == "unsuccessful" then
     laser_color = 8 -- Red for unsuccessful
-  elseif hit_defender_state == "overcharged" then
+  elseif hit_piece_state == "overcharged" then
     laser_color = 10 -- Yellow for overcharged
   end
 

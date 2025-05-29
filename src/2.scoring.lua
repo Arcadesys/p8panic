@@ -23,39 +23,41 @@ function reset_piece_states_for_scoring()
   end
 end
 
-function _check_attacker_hit_defender(attacker_obj, defender_obj, player_manager_param, ray_segment_intersect_func, current_laser_len, add_func)
+function _check_attacker_hit_piece(attacker_obj, target_obj, player_manager_param, ray_segment_intersect_func, current_laser_len, add_func)
   local attacker_vertices = attacker_obj:get_draw_vertices()
   if not attacker_vertices or #attacker_vertices == 0 then return end
   local apex = attacker_vertices[1]
   local dir_x = cos(attacker_obj.orientation) -- cos is global via --#globals
   local dir_y = sin(attacker_obj.orientation) -- sin is global via --#globals
 
-  local defender_corners = defender_obj:get_draw_vertices()
-  if not defender_corners or #defender_corners == 0 then return end
+  local target_corners = target_obj:get_draw_vertices()
+  if not target_corners or #target_corners == 0 then return end
 
-  for j = 1, #defender_corners do
-    local k = (j % #defender_corners) + 1
+  for j = 1, #target_corners do
+    local k = (j % #target_corners) + 1
     local ix, iy, t = ray_segment_intersect_func(apex.x, apex.y, dir_x, dir_y,
-                                                 defender_corners[j].x, defender_corners[j].y,
-                                                 defender_corners[k].x, defender_corners[k].y)
+                                                 target_corners[j].x, target_corners[j].y,
+                                                 target_corners[k].x, target_corners[k].y)
     if t and t >= 0 and t <= current_laser_len then
-      defender_obj.hits = (defender_obj.hits or 0) + 1
-      defender_obj.targeting_attackers = defender_obj.targeting_attackers or {}
-      add_func(defender_obj.targeting_attackers, attacker_obj)
+      target_obj.hits = (target_obj.hits or 0) + 1
+      target_obj.targeting_attackers = target_obj.targeting_attackers or {}
+      add_func(target_obj.targeting_attackers, attacker_obj)
 
       local attacker_player = player_manager_param.get_player(attacker_obj.owner_id)
-      local defender_player = player_manager_param.get_player(defender_obj.owner_id)
+      local target_player = player_manager_param.get_player(target_obj.owner_id)
 
-      if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
+      if attacker_player and target_player and attacker_obj.owner_id ~= target_obj.owner_id then
         attacker_player:add_score(1)
       end
 
-      if defender_obj.hits == 1 then
-        defender_obj.state = "successful"
-      elseif defender_obj.hits == 2 then
-        defender_obj.state = "unsuccessful"
-      elseif defender_obj.hits >= 3 then
-        defender_obj.state = "overcharged"
+      if target_obj.type == "defender" then
+        if target_obj.hits == 1 then
+          target_obj.state = "successful"
+        elseif target_obj.hits == 2 then
+          target_obj.state = "unsuccessful"
+        elseif target_obj.hits >= 3 then
+          target_obj.state = "overcharged"
+        end
       end
       return true
     end
@@ -84,13 +86,22 @@ function score_pieces()
   reset_player_scores()
   reset_piece_states_for_scoring()
 
-  -- Score attackers hitting defenders
+  -- Score attackers hitting other pieces (defenders and other attackers)
   for _, attacker_obj in ipairs(pieces) do -- Use global 'pieces' directly
     if attacker_obj and attacker_obj.type == "attacker" then
+      -- First check against defenders
       for _, defender_obj in ipairs(pieces) do -- Use global 'pieces' directly
         if defender_obj and defender_obj.type == "defender" then
           -- Pass global variables directly to the helper function
-          _check_attacker_hit_defender(attacker_obj, defender_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
+          _check_attacker_hit_piece(attacker_obj, defender_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
+        end
+      end
+      
+      -- Then check against other attackers (excluding self)
+      for _, other_attacker_obj in ipairs(pieces) do
+        if other_attacker_obj and other_attacker_obj.type == "attacker" and other_attacker_obj ~= attacker_obj then
+          -- Check if attacker hits other attacker
+          _check_attacker_hit_piece(attacker_obj, other_attacker_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
         end
       end
     end
