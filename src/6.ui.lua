@@ -1,50 +1,36 @@
--- src/6.ui.lua
--- This file will contain functions for drawing UI elements,
--- including the main menu and in-game HUD.
+ui={}
 
---#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size game_timer tostring rectfill min type pairs ipairs btnp max STASH_SIZE countdown_timer line cos sin all
-
-ui = {}
--- Removed local caching of N_PLAYERS and player_manager (NP, PM)
--- Functions will use global N_PLAYERS and player_manager directly for up-to-date values.
-
--- 3D wireframe pyramid for menu background
-local pyr_vertices = {
-  {0, -0.8, 0},    -- top
-  {-1, 0.8, -1},   -- base 1
-  {1, 0.8, -1},    -- base 2
-  {1, 0.8, 1},     -- base 3
-  {-1, 0.8, 1}     -- base 4
+local pyr_vertices={
+  {0,-0.8,0},
+  {-1,0.8,-1},
+  {1,0.8,-1},
+  {1,0.8,1},
+  {-1,0.8,1}
 }
-local pyr_edges = {
-  {1,2},{1,3},{1,4},{1,5}, -- sides
-  {2,3},{3,4},{4,5},{5,2} -- base
+local pyr_edges={
+  {1,2},{1,3},{1,4},{1,5},
+  {2,3},{3,4},{4,5},{5,2}
 }
-local pyr_angle_x = 0
-local pyr_angle_y = 0
-local pyr_angle_z = 0
+local pyr_angle_x=0
+local pyr_angle_y=0
+local pyr_angle_z=0
 
-function pyr_rotate_point(v, ax, ay, az)
-  -- Rotate around x, y, z (Euler)
-  local x, y, z = v[1], v[2], v[3]
-  -- X
-  local cy, sy = cos(ax), sin(ax)
-  y, z = y*cy-z*sy, y*sy+z*cy
-  -- Y
-  local cx, sx = cos(ay), sin(ay)
-  x, z = x*cx+z*sx, -x*sx+z*cx
-  -- Z
-  local cz, sz = cos(az), sin(az)
-  x, y = x*cz-y*sz, x*sz+y*cz
-  return {x, y, z}
+function pyr_rotate_point(v,ax,ay,az)
+  local x,y,z=v[1],v[2],v[3]
+  local cy,sy=cos(ax),sin(ax)
+  y,z=y*cy-z*sy,y*sy+z*cy
+  local cx,sx=cos(ay),sin(ay)
+  x,z=x*cx+z*sx,-x*sx+z*cx
+  local cz,sz=cos(az),sin(az)
+  x,y=x*cz-y*sz,x*sz+y*cz
+  return{x,y,z}
 end
 
-function pyr_project_point(v, projection_scale)
-  -- Simple perspective projection
-  local viewer_z = 3
-  local px = v[1] / (viewer_z - v[3])
-  local py = v[2] / (viewer_z - v[3])
-  return 64 + px*projection_scale, 64 + py*projection_scale
+function pyr_project_point(v,projection_scale)
+  local viewer_z=3
+  local px=v[1]/(viewer_z-v[3])
+  local py=v[2]/(viewer_z-v[3])
+  return 64+px*projection_scale,64+py*projection_scale
 end
 
 function draw_pyramid(size, color)
@@ -61,49 +47,48 @@ function draw_pyramid(size, color)
     pts2d[i] = {sx, sy}
   end
   -- Draw edges
-  local edge_color = color or 6 -- Default color if not provided
-  for e in all(pyr_edges) do
-    local a, b = pts2d[e[1]], pts2d[e[2]]
-    line(a[1], a[2], b[1], b[2], edge_color)
+  local edge_color=color or 6
+  for e in all(pyr_edges)do
+    local a,b=pts2d[e[1]],pts2d[e[2]]
+    line(a[1],a[2],b[1],b[2],edge_color)
   end
 end
 
 function ui.draw_main_menu()
   cls(0)
-  draw_pyramid(48, 6) -- Call with default size 48 and color 6
-  print("P8PANIC", 48, 20, 7)
-  local options = {
-    "Players: " .. (menu_player_count or N_PLAYERS or 2),
-    "Stash Size: " .. (menu_stash_size or STASH_SIZE or 3),
-    "Game Timer: " .. (game_timer or 3) .. " min",
+  draw_pyramid(48,6)
+  print("P8PANIC",48,20,7)
+  local options={
+    "Players: "..(menu_player_count or N_PLAYERS or 2),
+    "Stash Size: "..(menu_stash_size or STASH_SIZE or 3),
+    "Game Timer: "..(game_timer or 3).." min",
     "Start Game",
-    "Finish Game", -- New option
+    "Finish Game",
     "How To Play"
   }
-  for i, opt in ipairs(options) do
-    local y = 38 + i * 9 -- Adjusted y spacing slightly for more options
-    local col = (menu_option == i and 11) or 7
-    print(opt, 20, y, col)
-    if menu_option == i then
-      print("\136", 10, y, 11)
+  for i,opt in ipairs(options)do
+    local y=38+i*9
+    local col=(menu_option==i and 11)or 7
+    print(opt,20,y,col)
+    if menu_option==i then
+      print("\136",10,y,11)
     end
   end
 end
 
--- Draw how-to-play screen
 function ui.draw_how_to_play()
   cls(0)
-  print("HOW TO PLAY", 30, 20, 7)
-  print("Use arrows to navigate", 10, 40, 7)
-  print("Press (X) to select", 10, 50, 7)
-  print("Press (X) to return", 10, 100, 7)
+  print("HOW TO PLAY",30,20,7)
+  print("Use arrows to navigate",10,40,7)
+  print("Press (X) to select",10,50,7)
+  print("Press (X) to return",10,100,7)
 end
 
 function ui.draw_game_hud()
-  local screen_w = 128
-  local screen_h = 128
-  local margin = 5
-  local line_h = 6 -- Standard Pico-8 font height (5px char + 1px spacing)
+  local screen_w=128
+  local screen_h=128
+  local margin=5
+  local line_h=6
 
   local corners = {
     -- P1: Top-Left (score at y, stash below)

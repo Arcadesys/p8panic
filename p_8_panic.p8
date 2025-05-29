@@ -1,77 +1,90 @@
 pico-8 cartridge // http://www.pico-8.com
-version 42
+version 16
 __lua__
----@diagnostic disable: undefined-global
+--init
+player_manager={}
+player_manager.current_players={}
+player_manager.init_players=function(n)
+  player_manager.current_players={}
+  for i=1,n do
+    local c=player_manager.colors and player_manager.colors[i]or 7
+    local gc=player_manager.ghost_colors and player_manager.ghost_colors[i]or 7
+    player_manager.current_players[i]={
+      id=i,
+      score=0,
+      color=c,
+      ghost_color=gc,
+      stash_counts={[c]=STASH_SIZE}
+    }
+  end
+end
+player_manager.get_player=function(i)
+  return player_manager.current_players[i]
+end
+player_manager.reset_all_players=function()
+  for _,p in pairs(player_manager.current_players)do p.score=0 end
+end
+STASH_SIZE=6
+d=nil
+pieces={}
+LASER_LEN=60
+N_PLAYERS=4
+cursors={}
+CAPTURE_RADIUS_SQUARED=64
+global_game_state="main_menu"
+countdown_timer=0
+initiate_game_start_request=false
+panic_display_timer=0
 
-player_manager = {}
-STASH_SIZE = 6
-create_piece = nil
-pieces = {}
-LASER_LEN = 60
-N_PLAYERS = 4
-cursors = {}
-CAPTURE_RADIUS_SQUARED = 64
-
-global_game_state = "main_menu"
-countdown_timer = 0
-initiate_game_start_request = false
-panic_display_timer = 0
-
-player_count = N_PLAYERS
-stash_count = STASH_SIZE
-
-function point_in_polygon(px, py, vertices)
-  local inside = false
-  local n = #vertices
-  for i = 1, n do
-    local j = (i % n) + 1
-    local xi, yi = vertices[i].x, vertices[i].y
-    local xj, yj = vertices[j].x, vertices[j].y
-    if ((yi > py) ~= (yj > py)) and (px < (xj - xi) * (py - yi) / ((yj - yi) + 0.0001) + xi) then
-      inside = not inside
+player_count=N_PLAYERS
+stash_count=STASH_SIZE
+function point_in_polygon(px,py,vertices)
+  local inside=false
+  local n=#vertices
+  for i=1,n do
+    local j=(i%n)+1
+    local xi,yi=vertices[i].x,vertices[i].y
+    local xj,yj=vertices[j].x,vertices[j].y
+    if((yi>py)~=(yj>py))and(px<(xj-xi)*(py-yi)/((yj-yi)+0.0001)+xi)then
+      inside=not inside
     end
   end
   return inside
 end
 
-local cos, sin = cos, sin
-local max, min = max, min
-local sqrt, abs = sqrt, abs
-
-function ray_segment_intersect(ray_ox, ray_oy, ray_dx, ray_dy,
-                               seg_x1, seg_y1, seg_x2, seg_y2)
-  local s_dx = seg_x2 - seg_x1
-  local s_dy = seg_y2 - seg_y1
-  local r_s_cross = ray_dx * s_dy - ray_dy * s_dx
-  if r_s_cross == 0 then return nil, nil, nil end
+local cos,sin=cos,sin
+local max,min=max,min
+local sqrt,abs=sqrt,abs
+function ray_segment_intersect(ray_ox,ray_oy,ray_dx,ray_dy,seg_x1,seg_y1,seg_x2,seg_y2)
+  local s_dx=seg_x2-seg_x1
+  local s_dy=seg_y2-seg_y1
+  local r_s_cross=ray_dx*s_dy-ray_dy*s_dx
+  if r_s_cross==0 then return nil,nil,nil end
   
-  local t2 = ((seg_x1 - ray_ox) * ray_dy - (seg_y1 - ray_oy) * ray_dx) / r_s_cross
-  local t1 = ((seg_x1 - ray_ox) * s_dy - (seg_y1 - ray_oy) * s_dx) / r_s_cross
+  local t2=((seg_x1-ray_ox)*ray_dy-(seg_y1-ray_oy)*ray_dx)/r_s_cross
+  local t1=((seg_x1-ray_ox)*s_dy-(seg_y1-ray_oy)*s_dx)/r_s_cross
   
-  if t1 >= 0 and t2 >= 0 and t2 <= 1 then
-    return ray_ox + t1 * ray_dx, ray_oy + t1 * ray_dy, t1
+  if t1>=0 and t2>=0 and t2<=1 then
+    return ray_ox+t1*ray_dx,ray_oy+t1*ray_dy,t1
   end
-  return nil, nil, nil
+  return nil,nil,nil
 end
-
-function attempt_capture(player_obj, cursor)
-  local player_id = player_obj.id
-  for _, def_obj in ipairs(pieces) do
-    if def_obj.type == "defender" and def_obj.owner_id == player_id and def_obj.state == "overcharged" then
+function attempt_capture(player_obj,cursor)
+  local player_id=player_obj.id
+  for _,def_obj in ipairs(pieces)do
+    if def_obj.type=="defender"and def_obj.owner_id==player_id and def_obj.state=="overcharged"then
       if def_obj.targeting_attackers then
-        for attacker_idx = #def_obj.targeting_attackers, 1, -1 do
-          local attacker_to_capture = def_obj.targeting_attackers[attacker_idx]
+        for attacker_idx=#def_obj.targeting_attackers,1,-1 do
+          local attacker_to_capture=def_obj.targeting_attackers[attacker_idx]
           if attacker_to_capture then
-            local dist_x = (cursor.x + 4) - attacker_to_capture.position.x
-            local dist_y = (cursor.y + 4) - attacker_to_capture.position.y
+            local dist_x=(cursor.x+4)-attacker_to_capture.position.x
+            local dist_y=(cursor.y+4)-attacker_to_capture.position.y
             
-            if (dist_x*dist_x + dist_y*dist_y) < CAPTURE_RADIUS_SQUARED then
-              local captured_color = attacker_to_capture:get_color()
+            if(dist_x*dist_x+dist_y*dist_y)<CAPTURE_RADIUS_SQUARED then
+              local captured_color=attacker_to_capture:get_color()
               player_obj:add_captured_piece(captured_color)
-              
-              if del(pieces, attacker_to_capture) then
-                printh("P" .. player_id .. " captured attacker (color: " .. captured_color .. ")")
-                deli(def_obj.targeting_attackers, attacker_idx) 
+              if del(pieces,attacker_to_capture)then
+                deli(def_obj.targeting_attackers,attacker_idx)
                 return true 
               end
             end
@@ -82,168 +95,132 @@ function attempt_capture(player_obj, cursor)
   end
   return false
 end
-
 sfx_on=true
+game_timer=3
+config={
+  player_options={2,3,4},
+  current_players_idx=3,
 
-game_timer = 3
+  timer_options={1,2,3,5,10},
+  current_timer_idx=3,
 
-config = {
-  player_options = {2, 3, 4},
-  current_players_idx = 3,
-
-  timer_options = {1, 2, 3, 5, 10},
-  current_timer_idx = 3,
-
-  get_players_value = function()
-    return config.player_options[config.current_players_idx]
+  get_players_value=function()return config.player_options[config.current_players_idx]end,
+  set_players_idx=function(idx)
+    config.current_players_idx=idx
+    N_PLAYERS=config.get_players_value()
   end,
 
-  set_players_idx = function(idx)
-    config.current_players_idx = idx
-    N_PLAYERS = config.get_players_value()
-    printh("N_PLAYERS set to: " .. N_PLAYERS)
-  end,
-
-  get_timer_value = function()
-    return config.timer_options[config.current_timer_idx]
-  end,
-
-  set_timer_idx = function(idx)
-    config.current_timer_idx = idx
-    game_timer = config.get_timer_value()
-    printh("Game timer set to: " .. game_timer .. " min")
+  get_timer_value=function()return config.timer_options[config.current_timer_idx]end,
+  set_timer_idx=function(idx)
+    config.current_timer_idx=idx
+    game_timer=config.get_timer_value()
   end
 }
 
-N_PLAYERS = config.get_players_value()
-game_timer = config.get_timer_value()
+N_PLAYERS=config.get_players_value()
+game_timer=config.get_timer_value()
 -->8
 --player
-local Player = {}
-Player.__index = Player
-
-function Player:new(id, initial_score, color, ghost_color)
-  local instance = {
-    id = id,
-    score = initial_score or 0,
-    color = color,
-    ghost_color = ghost_color,
-    stash = {},
-    stash_counts = {},
-    captured_pieces_count = 0 
+local Player={}
+Player.__index=Player
+function Player:new(id,score0,c0,gc0)
+  local instance={
+    id=id,
+    score=score0 or 0,
+    color=c0,
+    ghost_color=gc0,
+    stash={},
+    stash_counts={},
+    captured_pieces_count=0 
   }
-  instance.stash_counts[color] = STASH_SIZE or 6
+  instance.stash_counts[c0]=STASH_SIZE or 6
 
-  setmetatable(instance, self)
+  setmetatable(instance,self)
   return instance
 end
-
-function Player:get_score()
-  return self.score
+function Player:get_score()return self.score end
+function Player:add_score(pts)
+  self.score=self.score+(pts or 1)
 end
-
-function Player:add_score(points)
-  self.score = self.score + (points or 1)
-end
-
-function Player:get_color()
-  return self.color
-end
-
-function Player:get_ghost_color()
-  return self.ghost_color
-end
-
+function Player:get_color()return self.color end
+function Player:get_ghost_color()return self.ghost_color end
 function Player:add_captured_piece(piece_color)
-  if self.stash_counts[piece_color] == nil then
-    self.stash_counts[piece_color] = 0
+  if self.stash_counts[piece_color]==nil then
+    self.stash_counts[piece_color]=0
   end
-  self.stash_counts[piece_color] += 1
-
-  if self.stash[piece_color] == nil then
-    self.stash[piece_color] = 0
+  self.stash_counts[piece_color]+=1
+  if self.stash[piece_color]==nil then
+    self.stash[piece_color]=0
   end
-  self.stash[piece_color] += 1
+  self.stash[piece_color]+=1
 end
-
-function Player:get_captured_count(piece_color)
-  return self.stash[piece_color] or 0
+function Player:get_piece_count(piece_color)
+  return self.stash[piece_color]or 0
 end
-
-function Player:has_piece_in_stash(piece_color)
-  return (self.stash[piece_color] or 0) > 0
+function Player:has_piece(piece_color)
+  return(self.stash[piece_color]or 0)>0
 end
-
 function Player:use_piece_from_stash(piece_color_to_use)
-  if self.stash_counts[piece_color_to_use] and self.stash_counts[piece_color_to_use] > 0 then
-    self.stash_counts[piece_color_to_use] -= 1
-    printh("P"..self.id.." used c:"..piece_color_to_use..". Stash: "..(self.stash_counts[piece_color_to_use] or 0))
+  if self.stash_counts[piece_color_to_use]and self.stash_counts[piece_color_to_use]>0 then
+    self.stash_counts[piece_color_to_use]-=1
+    printh("P"..self.id.." used c:"..piece_color_to_use..". Stash: "..(self.stash_counts[piece_color_to_use]or 0))
     
-    if self.stash[piece_color_to_use] and self.stash[piece_color_to_use] > 0 then
-      self.stash[piece_color_to_use] -= 1
+    if self.stash[piece_color_to_use]and self.stash[piece_color_to_use]>0 then
+      self.stash[piece_color_to_use]-=1
     end
     return true
   else
-    printh("P"..self.id.." no c:"..piece_color_to_use.." in stash_counts.")
     return false
   end
 end
-
-player_manager.colors = {
-  [1] = 12,
-  [2] = 8,
-  [3] = 11,
-  [4] = 10
+player_manager.colors={
+  [1]=12,
+  [2]=8,
+  [3]=11,
+  [4]=10
 }
-
-player_manager.ghost_colors = {
-  [1] = 5,
-  [2] = 14,
-  [3] = 3,
-  [4] = 15
+player_manager.ghost_colors={
+  [1]=5,
+  [2]=14,
+  [3]=3,
+  [4]=15
 }
+player_manager.current_players={}
 
-player_manager.current_players = {}
-
-function player_manager.init_players(num_players)
-  player_manager.current_players = {}
-  for i = 1, num_players do
-    local p_color = player_manager.colors[i]
-    local p_ghost_color = player_manager.ghost_colors[i]
+player_manager.init_players=function(n)
+  player_manager.current_players={}
+  for i=1,n do
+    local p_color=player_manager.colors[i]
+    local p_ghost_color=player_manager.ghost_colors[i]
     if Player and Player.new then
-      player_manager.current_players[i] = Player:new(i, 0, p_color, p_ghost_color)
+      player_manager.current_players[i]=Player:new(i,0,p_color,p_ghost_color)
     else
-      printh("Err: Player:new fail init_players!")
-      player_manager.current_players[i] = {id=i, score=0, color=p_color, ghost_color=p_ghost_color, stash={}, stash_counts={[p_color]=STASH_SIZE or 6}} 
+      player_manager.current_players[i]={id=i,score=0,color=p_color,ghost_color=p_ghost_color,stash={},stash_counts={[p_color]=STASH_SIZE or 6}} 
     end
   end
-  printh("Init " .. num_players .. " players.")
 end
-
-function player_manager.get_player(id)
+player_manager.get_player=function(id)
   return player_manager.current_players[id]
 end
 
-function player_manager.reset_all_scores()
-  for _, player_obj in ipairs(player_manager.current_players) do
+function player_manager.reset_all_players()
+  for _,player_obj in ipairs(player_manager.current_players)do
     if player_obj then
-      player_obj.score = 0
+      player_obj.score=0
     end
   end
 end
-
-function create_player(id, initial_score, color, ghost_color)
+function create_player(id,score0,c0,gc0)
   if Player and Player.new then
-    return Player:new(id, initial_score, color, ghost_color)
+    return Player:new(id,score0,c0,gc0)
   else
-    printh("Err: Player.new undef create_player.")
-    return { 
-      id = id, 
-      score = initial_score or 0, 
-      color = color or 7, 
-      ghost_color = ghost_color or 7, 
-      stash = {}, 
-      stash_counts = {[color or 7] = STASH_SIZE or 6} 
+    return{
+      id=id,
+      score=score0 or 0,
+      color=c0 or 7,
+      ghost_color=gc0 or 7,
+      stash={},
+      stash_counts={[c0 or 7]=STASH_SIZE or 6}
     }
   end
 end
@@ -251,56 +228,56 @@ end
 --scoring
 function reset_player_scores()
   if player_manager and player_manager.current_players then
-    for _, player_obj in ipairs(player_manager.current_players) do
+    for _,player_obj in ipairs(player_manager.current_players)do
       if player_obj then
-        player_obj.score = 0
+        player_obj.score=0
       end
     end
   end
 end
 
 function reset_piece_states_for_scoring()
-  for _, p_obj in ipairs(pieces) do
+  for _,p_obj in ipairs(pieces)do
     if p_obj then
-      p_obj.hits = 0
-      p_obj.targeting_attackers = {}
+      p_obj.hits=0
+      p_obj.targeting_attackers={}
     end
   end
 end
 
-function _check_attacker_hit_defender(attacker_obj, defender_obj, player_manager_param, ray_segment_intersect_func, current_laser_len, add_func)
-  local attacker_vertices = attacker_obj:get_draw_vertices()
-  if not attacker_vertices or #attacker_vertices == 0 then return end
-  local apex = attacker_vertices[1]
-  local dir_x = cos(attacker_obj.orientation)
-  local dir_y = sin(attacker_obj.orientation)
+function _check_attacker_hit_defender(attacker_obj,defender_obj,player_manager_param,ray_segment_intersect_func,current_laser_len,add_func)
+  local attacker_vertices=attacker_obj:get_draw_vertices()
+  if not attacker_vertices or #attacker_vertices==0 then return end
+  local apex=attacker_vertices[1]
+  local dir_x=cos(attacker_obj.orientation)
+  local dir_y=sin(attacker_obj.orientation)
 
-  local defender_corners = defender_obj:get_draw_vertices()
-  if not defender_corners or #defender_corners == 0 then return end
+  local defender_corners=defender_obj:get_draw_vertices()
+  if not defender_corners or #defender_corners==0 then return end
 
-  for j = 1, #defender_corners do
-    local k = (j % #defender_corners) + 1
-    local ix, iy, t = ray_segment_intersect_func(apex.x, apex.y, dir_x, dir_y,
-                                                 defender_corners[j].x, defender_corners[j].y,
-                                                 defender_corners[k].x, defender_corners[k].y)
-    if t and t >= 0 and t <= current_laser_len then
-      defender_obj.hits = (defender_obj.hits or 0) + 1
-      defender_obj.targeting_attackers = defender_obj.targeting_attackers or {}
-      add_func(defender_obj.targeting_attackers, attacker_obj)
+  for j=1,#defender_corners do
+    local k=(j%#defender_corners)+1
+    local ix,iy,t=ray_segment_intersect_func(apex.x,apex.y,dir_x,dir_y,
+                                             defender_corners[j].x,defender_corners[j].y,
+                                             defender_corners[k].x,defender_corners[k].y)
+    if t and t>=0 and t<=current_laser_len then
+      defender_obj.hits=(defender_obj.hits or 0)+1
+      defender_obj.targeting_attackers=defender_obj.targeting_attackers or{}
+      add_func(defender_obj.targeting_attackers,attacker_obj)
 
-      local attacker_player = player_manager_param.get_player(attacker_obj.owner_id)
-      local defender_player = player_manager_param.get_player(defender_obj.owner_id)
+      local attacker_player=player_manager_param.get_player(attacker_obj.owner_id)
+      local defender_player=player_manager_param.get_player(defender_obj.owner_id)
 
-      if attacker_player and defender_player and attacker_obj.owner_id ~= defender_obj.owner_id then
+      if attacker_player and defender_player and attacker_obj.owner_id~=defender_obj.owner_id then
         attacker_player:add_score(1)
       end
 
-      if defender_obj.hits == 1 then
-        defender_obj.state = "successful"
-      elseif defender_obj.hits == 2 then
-        defender_obj.state = "unsuccessful"
-      elseif defender_obj.hits >= 3 then
-        defender_obj.state = "overcharged"
+      if defender_obj.hits==1 then
+        defender_obj.state="successful"
+      elseif defender_obj.hits==2 then
+        defender_obj.state="unsuccessful"
+      elseif defender_obj.hits>=3 then
+        defender_obj.state="overcharged"
       end
       return true
     end
@@ -308,16 +285,16 @@ function _check_attacker_hit_defender(attacker_obj, defender_obj, player_manager
   return false
 end
 
-function _score_defender(p_obj, player_manager_param)
-  if p_obj and p_obj.type == "defender" then
-    local num_total_attackers_targeting = 0
+function _score_defender(p_obj,player_manager_param)
+  if p_obj and p_obj.type=="defender"then
+    local num_total_attackers_targeting=0
     if p_obj.targeting_attackers then
-      num_total_attackers_targeting = #p_obj.targeting_attackers
+      num_total_attackers_targeting=#p_obj.targeting_attackers
     end
-    p_obj.dbg_target_count = num_total_attackers_targeting
+    p_obj.dbg_target_count=num_total_attackers_targeting
 
-    if num_total_attackers_targeting <= 1 then
-      local defender_player = player_manager_param.get_player(p_obj.owner_id)
+    if num_total_attackers_targeting<=1 then
+      local defender_player=player_manager_param.get_player(p_obj.owner_id)
       if defender_player then
         defender_player:add_score(1)
       end
@@ -329,76 +306,63 @@ function score_pieces()
   reset_player_scores()
   reset_piece_states_for_scoring()
 
-  for _, attacker_obj in ipairs(pieces) do
-    if attacker_obj and attacker_obj.type == "attacker" then
-      for _, defender_obj in ipairs(pieces) do
-        if defender_obj and defender_obj.type == "defender" then
-          _check_attacker_hit_defender(attacker_obj, defender_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
+  for _,attacker_obj in ipairs(pieces)do
+    if attacker_obj and attacker_obj.type=="attacker"then
+      for _,defender_obj in ipairs(pieces)do
+        if defender_obj and defender_obj.type=="defender"then
+          _check_attacker_hit_defender(attacker_obj,defender_obj,player_manager,ray_segment_intersect,LASER_LEN,add)
         end
       end
     end
   end
 
-  for _, p_obj in ipairs(pieces) do
-    _score_defender(p_obj, player_manager)
+  for _,p_obj in ipairs(pieces)do
+    _score_defender(p_obj,player_manager)
   end
 
-  local remaining_pieces = {}
-  for _,p_obj in ipairs(pieces) do
+  local remaining_pieces={}
+  for _,p_obj in ipairs(pieces)do
     if not p_obj.captured_flag then
-      add(remaining_pieces, p_obj)
+      add(remaining_pieces,p_obj)
     else
-      printh("Piece removed due to overcharge capture: P" .. p_obj.owner_id .. " " .. p_obj.type)
+      printh("Piece removed due to overcharge capture: P"..p_obj.owner_id.." "..p_obj.type)
     end
   end
-  pieces = remaining_pieces
+  pieces=remaining_pieces
 end
 
 function calculate_final_scores()
   score_pieces()
-  -- Potentially, in the future, we might want to do something additional
-  -- specific to final scoring here, like determining winners.
-  -- For now, just re-running score_pieces covers the calculation.
 end
 
-update_game_state = score_pieces
+update_game_state=score_pieces
 -->8
--- src/5.piece.lua
+--piece
+Piece={}
+Piece.__index=Piece
 
--- Forward declarations for metatables if needed
-Piece = {}
-Piece.__index = Piece
+Attacker={}
+Attacker.__index=Attacker
+setmetatable(Attacker,{__index=Piece})
 
-Attacker = {}
-Attacker.__index = Attacker
-setmetatable(Attacker, {__index = Piece}) -- Inherit from Piece
+Defender={}
+Defender.__index=Defender
+setmetatable(Defender,{__index=Piece})
 
-Defender = {}
-Defender.__index = Defender
-setmetatable(Defender, {__index = Piece}) -- Inherit from Piece
+DEFENDER_WIDTH=8
+DEFENDER_HEIGHT=8
+local ATTACKER_TRIANGLE_HEIGHT=8
+local ATTACKER_TRIANGLE_BASE=6
 
--- Piece constants (can be moved from 0.init.lua)
-DEFENDER_WIDTH = 8
-DEFENDER_HEIGHT = 8
-local ATTACKER_TRIANGLE_HEIGHT = 8
-local ATTACKER_TRIANGLE_BASE = 6
-    -- local LASER_LEN = 60 -- This is globally defined in 0.init.lua as LASER_LEN and accessed via LASER_LEN
+local cos,sin=cos,sin
+local max,min=max,min
+local sqrt,abs=sqrt,abs
 
--- Cached math functions
-local cos, sin = cos, sin
-local max, min = max, min
-local sqrt, abs = sqrt, abs
-
--- Base Piece methods
 function Piece:new(o)
-  o = o or {}
-  -- Common properties: position, orientation, owner_id, type
-  o.position = o.position or {x=64, y=64} -- Default position
-  o.orientation = o.orientation or 0
-  -- o.owner_id should be provided
-  -- o.type should be set by subclasses or factory
-  -- o.color is now passed in params for placed pieces
-  setmetatable(o, self) -- Set metatable after o is populated
+  o=o or{}
+  o.position=o.position or{x=64,y=64}
+  o.orientation=o.orientation or 0
+  setmetatable(o,self)
   return o
 end
 
@@ -406,261 +370,245 @@ function Piece:get_color()
   if self.is_ghost and self.ghost_color_override then
     return self.ghost_color_override
   end
-  -- If a color is explicitly set on the piece (e.g., when placed from stash), use it.
   if self.color then
     return self.color
   end
   if self.owner_id then
-    local owner_player = player_manager.get_player(self.owner_id)
+    local owner_player=player_manager.get_player(self.owner_id)
     if owner_player then
       return owner_player:get_color()
     end
   end
-  return 7 -- Default color (white)
+  return 7
 end
 
 function Piece:get_draw_vertices()
-  local o = self.orientation
-  local cx = self.position.x
-  local cy = self.position.y
-  local local_corners = {}
+  local o=self.orientation
+  local cx=self.position.x
+  local cy=self.position.y
+  local local_corners={}
 
-  if self.type == "attacker" then
-    local h = ATTACKER_TRIANGLE_HEIGHT
-    local b = ATTACKER_TRIANGLE_BASE
-    add(local_corners, {x = h/2, y = 0})      -- Apex
-    add(local_corners, {x = -h/2, y = b/2})     -- Base corner 1
-    add(local_corners, {x = -h/2, y = -b/2})    -- Base corner 2
-  else -- defender
-    local w, h = DEFENDER_WIDTH, DEFENDER_HEIGHT
-    local hw = w / 2
-    local hh = h / 2
-    add(local_corners, {x = -hw, y = -hh})
-    add(local_corners, {x = hw, y = -hh})
-    add(local_corners, {x = hw, y = hh})
-    add(local_corners, {x = -hw, y = hh})
+  if self.type=="attacker"then
+    local h=ATTACKER_TRIANGLE_HEIGHT
+    local b=ATTACKER_TRIANGLE_BASE
+    add(local_corners,{x=h/2,y=0})
+    add(local_corners,{x=-h/2,y=b/2})
+    add(local_corners,{x=-h/2,y=-b/2})
+  else
+    local w,h=DEFENDER_WIDTH,DEFENDER_HEIGHT
+    local hw=w/2
+    local hh=h/2
+    add(local_corners,{x=-hw,y=-hh})
+    add(local_corners,{x=hw,y=-hh})
+    add(local_corners,{x=hw,y=hh})
+    add(local_corners,{x=-hw,y=hh})
   end
 
-  local world_corners = {}
-  for lc in all(local_corners) do
-    local rotated_x = lc.x * cos(o) - lc.y * sin(o)
-    local rotated_y = lc.x * sin(o) + lc.y * cos(o)
-    add(world_corners, {x = cx + rotated_x, y = cy + rotated_y})
+  local world_corners={}
+  for lc in all(local_corners)do
+    local rotated_x=lc.x*cos(o)-lc.y*sin(o)
+    local rotated_y=lc.x*sin(o)+lc.y*cos(o)
+    add(world_corners,{x=cx+rotated_x,y=cy+rotated_y})
   end
   return world_corners
 end
 
 function Piece:draw()
-  -- Basic draw, to be overridden by Attacker/Defender
-  local vertices = self:get_draw_vertices()
-  local color = self:get_color()
-  if #vertices >= 3 then
+  local vertices=self:get_draw_vertices()
+  local color=self:get_color()
+  if #vertices>=3 then
     for i=1,#vertices do
-      local v1 = vertices[i]
-      local v2 = vertices[(i % #vertices) + 1]
-      line(v1.x, v1.y, v2.x, v2.y, color)
+      local v1=vertices[i]
+      local v2=vertices[(i%#vertices)+1]
+      line(v1.x,v1.y,v2.x,v2.y,color)
     end
   end
 end
 
--- Attacker methods
 function Attacker:new(o)
-  o = o or {}
-  o.type = "attacker"
-  -- Attacker-specific initializations
-  return Piece.new(self, o) -- Call base constructor
+  o=o or{}
+  o.type="attacker"
+  return Piece.new(self,o)
 end
 
 function Attacker:draw()
-  -- First, draw the attacker triangle itself
-  Piece.draw(self) -- Call base Piece:draw to draw the triangle shape
+  Piece.draw(self)
+  
+  local vertices=self:get_draw_vertices()
+  if not vertices or #vertices==0 then return end
+  local apex=vertices[1]
 
-  -- Now, draw the laser
-  local vertices = self:get_draw_vertices()
-  if not vertices or #vertices == 0 then return end
-  local apex = vertices[1] -- Assuming apex is the first vertex for attacker
+  local dir_x=cos(self.orientation)
+  local dir_y=sin(self.orientation)
+  local laser_color=self:get_color()
+  local laser_end_x=apex.x+dir_x*LASER_LEN
+  local laser_end_y=apex.y+dir_y*LASER_LEN
+  local closest_hit_t=LASER_LEN
 
-  local dir_x = cos(self.orientation)
-  local dir_y = sin(self.orientation)
-  local laser_color = self:get_color() -- Default laser color
-  local laser_end_x = apex.x + dir_x * LASER_LEN
-  local laser_end_y = apex.y + dir_y * LASER_LEN
-  local closest_hit_t = LASER_LEN
+  local hit_defender_state=nil
 
-  local hit_defender_state = nil
-
-  -- Check for intersections with all defenders
   if pieces then
-    for _, other_piece in ipairs(pieces) do
-      if other_piece.type == "defender" then
-        local def_corners = other_piece:get_draw_vertices()
-        for j = 1, #def_corners do
-          local k = (j % #def_corners) + 1
-          local ix, iy, t = ray_segment_intersect(
-            apex.x, apex.y, dir_x, dir_y,
-            def_corners[j].x, def_corners[j].y, def_corners[k].x, def_corners[k].y
+    for _,other_piece in ipairs(pieces)do
+      if other_piece.type=="defender"then
+        local def_corners=other_piece:get_draw_vertices()
+        for j=1,#def_corners do
+          local k=(j%#def_corners)+1
+          local ix,iy,t=ray_segment_intersect(
+            apex.x,apex.y,dir_x,dir_y,
+            def_corners[j].x,def_corners[j].y,def_corners[k].x,def_corners[k].y
           )
-          if t and t >= 0 and t < closest_hit_t then
-            closest_hit_t = t
-            laser_end_x = ix
-            laser_end_y = iy
-            hit_defender_state = other_piece.state -- Store the state of the hit defender
+          if t and t>=0 and t<closest_hit_t then
+            closest_hit_t=t
+            laser_end_x=ix
+            laser_end_y=iy
+            hit_defender_state=other_piece.state
           end
         end
       end
     end
   end
 
-  -- Adjust laser color based on hit defender's state
-  if hit_defender_state == "unsuccessful" then
-    laser_color = 8 -- Red for unsuccessful
-  elseif hit_defender_state == "overcharged" then
-    laser_color = 10 -- Yellow for overcharged
+  if hit_defender_state=="unsuccessful"then
+    laser_color=8
+  elseif hit_defender_state=="overcharged"then
+    laser_color=10
   end
 
-  -- "Dancing ants" animation for the laser beam
-  local ant_spacing = 4
-  local ant_length = 2
-  local num_ants = flr(closest_hit_t / ant_spacing)
-  local time_factor = time() * 20 -- Adjust speed of ants
+  local ant_spacing=4
+  local ant_length=2
+  local num_ants=flr(closest_hit_t/ant_spacing)
+  local time_factor=time()*20
 
-  for i = 0, num_ants - 1 do
-    local ant_start_t = (i * ant_spacing + time_factor) % closest_hit_t
-    local ant_end_t = ant_start_t + ant_length
+  for i=0,num_ants-1 do
+    local ant_start_t=(i*ant_spacing+time_factor)%closest_hit_t
+    local ant_end_t=ant_start_t+ant_length
     
-    if ant_end_t <= closest_hit_t then
-      local ant_start_x = apex.x + dir_x * ant_start_t
-      local ant_start_y = apex.y + dir_y * ant_start_t
-      local ant_end_x = apex.x + dir_x * ant_end_t
-      local ant_end_y = apex.y + dir_y * ant_end_t
-      line(ant_start_x, ant_start_y, ant_end_x, ant_end_y, laser_color)
-    else -- Handle ant wrapping around the end of the laser segment
-      local segment1_end_t = closest_hit_t
-      local segment1_start_x = apex.x + dir_x * ant_start_t
-      local segment1_start_y = apex.y + dir_y * ant_start_t
-      local segment1_end_x = apex.x + dir_x * segment1_end_t
-      local segment1_end_y = apex.y + dir_y * segment1_end_t
-      line(segment1_start_x, segment1_start_y, segment1_end_x, segment1_end_y, laser_color)
+    if ant_end_t<=closest_hit_t then
+      local ant_start_x=apex.x+dir_x*ant_start_t
+      local ant_start_y=apex.y+dir_y*ant_start_t
+      local ant_end_x=apex.x+dir_x*ant_end_t
+      local ant_end_y=apex.y+dir_y*ant_end_t
+      line(ant_start_x,ant_start_y,ant_end_x,ant_end_y,laser_color)
+    else
+      local segment1_end_t=closest_hit_t
+      local segment1_start_x=apex.x+dir_x*ant_start_t
+      local segment1_start_y=apex.y+dir_y*ant_start_t
+      local segment1_end_x=apex.x+dir_x*segment1_end_t
+      local segment1_end_y=apex.y+dir_y*segment1_end_t
+      line(segment1_start_x,segment1_start_y,segment1_end_x,segment1_end_y,laser_color)
       
-      local segment2_len = ant_end_t - closest_hit_t
-      if segment2_len > 0 then -- only draw if there's a remainder
-        local segment2_start_x = apex.x
-        local segment2_start_y = apex.y
-        local segment2_end_x = apex.x + dir_x * segment2_len
-        local segment2_end_y = apex.y + dir_y * segment2_len
-        line(segment2_start_x, segment2_start_y, segment2_end_x, segment2_end_y, laser_color)
+      local segment2_len=ant_end_t-closest_hit_t
+      if segment2_len>0 then
+        local segment2_start_x=apex.x
+        local segment2_start_y=apex.y
+        local segment2_end_x=apex.x+dir_x*segment2_len
+        local segment2_end_y=apex.y+dir_y*segment2_len
+        line(segment2_start_x,segment2_start_y,segment2_end_x,segment2_end_y,laser_color)
       end
     end
   end
 end
 
--- Defender methods
 function Defender:new(o)
-  o = o or {}
-  o.type = "defender"
-  o.hits = 0
-  o.state = "neutral" -- "neutral", "unsuccessful", "overcharged"
-  o.targeting_attackers = {}
-  return Piece.new(self, o) -- Call base constructor
+  o=o or{}
+  o.type="defender"
+  o.hits=0
+  o.state="neutral"
+  o.targeting_attackers={}
+  return Piece.new(self,o)
 end
 
 function Defender:draw()
-  local vertices = self:get_draw_vertices()
-  local color = self:get_color()
-  -- Defenders always draw in their owner's color
-  if #vertices == 4 then
-    line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, color)
-    line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, color)
-    line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, color)
-    line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, color)
+  local vertices=self:get_draw_vertices()
+  local color=self:get_color()
+  if #vertices==4 then
+    line(vertices[1].x,vertices[1].y,vertices[2].x,vertices[2].y,color)
+    line(vertices[2].x,vertices[2].y,vertices[3].x,vertices[3].y,color)
+    line(vertices[3].x,vertices[3].y,vertices[4].x,vertices[4].y,color)
+    line(vertices[4].x,vertices[4].y,vertices[1].x,vertices[1].y,color)
   end
 end
 
--- Factory function to create pieces
--- Global `pieces` table will be needed for laser interactions in Attacker:draw
--- It might be passed to Attacker:draw or accessed globally if available.
-function create_piece(params) -- `params` should include owner_id, type, position, orientation, color
+function create_piece(params)
   local piece_obj
-  if params.type == "attacker" then
-    piece_obj = Attacker:new(params) -- Pass all params, including color
-  elseif params.type == "defender" then
-    piece_obj = Defender:new(params) -- Pass all params, including color
+  if params.type=="attacker"then
+    piece_obj=Attacker:new(params)
+  elseif params.type=="defender"then
+    piece_obj=Defender:new(params)
   else
-    printh("Error: Unknown piece type: " .. (params.type or "nil"))
+    printh("Error: Unknown piece type: "..(params.type or"nil"))
     return nil
   end
   return piece_obj
 end
 -->8
--- src/1.placement.lua
--- Placement Module
-
+--placement
 function legal_placement(piece_params)
-  local bw, bh = 128, 128
-  local temp_piece_obj = create_piece(piece_params)
+  local bw,bh=128,128
+  local temp_piece_obj=create_piece(piece_params)
   if not temp_piece_obj then return false end
 
-  local function vec_sub(a, b) return {x = a.x - b.x, y = a.y - b.y} end
-  local function vec_dot(a, b) return a.x * b.x + a.y * b.y end
-  local function project(vs, ax)
-    if not vs or #vs == 0 then return 0,0 end -- Guard against empty vertices
-    local mn, mx = vec_dot(vs[1], ax), vec_dot(vs[1], ax)
-    for i = 2, #vs do
-      local pr = vec_dot(vs[i], ax)
-      mn, mx = min(mn, pr), max(mx, pr)
+  local function vec_sub(a,b)return{x=a.x-b.x,y=a.y-b.y}end
+  local function vec_dot(a,b)return a.x*b.x+a.y*b.y end
+  local function project(vs,ax)
+    if not vs or #vs==0 then return 0,0 end
+    local mn,mx=vec_dot(vs[1],ax),vec_dot(vs[1],ax)
+    for i=2,#vs do
+      local pr=vec_dot(vs[i],ax)
+      mn,mx=min(mn,pr),max(mx,pr)
     end
-    return mn, mx
+    return mn,mx
   end
   local function get_axes(vs)
-    local ua = {}
-    if not vs or #vs < 2 then return ua end -- Need at least 2 vertices for an edge
-    for i = 1, #vs do
-      local p1 = vs[i]
-      local p2 = vs[(i % #vs) + 1]
-      local e = vec_sub(p2, p1)
-      local n = {x = -e.y, y = e.x}
-      local l = sqrt(n.x^2 + n.y^2)
-      if l > 0.0001 then
-        n.x, n.y = n.x / l, n.y / l
-        local uniq = true
-        for ea in all(ua) do if abs(vec_dot(ea, n)) > 0.999 then uniq = false; break end end
-        if uniq then add(ua, n) end
+    local ua={}
+    if not vs or #vs<2 then return ua end
+    for i=1,#vs do
+      local p1=vs[i]
+      local p2=vs[(i%#vs)+1]
+      local e=vec_sub(p2,p1)
+      local n={x=-e.y,y=e.x}
+      local l=sqrt(n.x^2+n.y^2)
+      if l>0.0001 then
+        n.x,n.y=n.x/l,n.y/l
+        local uniq=true
+        for ea in all(ua)do if abs(vec_dot(ea,n))>0.999 then uniq=false;break end end
+        if uniq then add(ua,n)end
       end
     end
     return ua
   end
 
-  local corners = temp_piece_obj:get_draw_vertices()
-  if not corners or #corners == 0 then return false end -- No vertices to check
-  for c in all(corners) do
-    if c.x < 0 or c.x > bw or c.y < 0 or c.y > bh then return false end
+  local corners=temp_piece_obj:get_draw_vertices()
+  if not corners or #corners==0 then return false end
+  for c in all(corners)do
+    if c.x<0 or c.x>bw or c.y<0 or c.y>bh then return false end
   end
 
-  for _, ep_obj in ipairs(pieces) do
-    local ep_corners = ep_obj:get_draw_vertices()
-    if not ep_corners or #ep_corners == 0 then goto next_ep_check end -- Skip if existing piece has no vertices
+  for _,ep_obj in ipairs(pieces)do
+    local ep_corners=ep_obj:get_draw_vertices()
+    if not ep_corners or #ep_corners==0 then goto next_ep_check end
 
-    local combined_axes = {}
-    for ax_piece in all(get_axes(corners)) do add(combined_axes, ax_piece) end
-    for ax_ep in all(get_axes(ep_corners)) do add(combined_axes, ax_ep) end
+    local combined_axes={}
+    for ax_piece in all(get_axes(corners))do add(combined_axes,ax_piece)end
+    for ax_ep in all(get_axes(ep_corners))do add(combined_axes,ax_ep)end
     
-    if #combined_axes == 0 then -- Potentially both are lines or points
-        local min_x1, max_x1, min_y1, max_y1 = bw, 0, bh, 0
-        for c in all(corners) do min_x1=min(min_x1,c.x) max_x1=max(max_x1,c.x) min_y1=min(min_y1,c.y) max_y1=max(max_y1,c.y) end
-        local min_x2, max_x2, min_y2, max_y2 = bw, 0, bh, 0
-        for c in all(ep_corners) do min_x2=min(min_x2,c.x) max_x2=max(max_x2,c.x) min_y2=min(min_y2,c.y) max_y2=max(max_y2,c.y) end
-        if not (max_x1 < min_x2 or max_x2 < min_x1 or max_y1 < min_y2 or max_y2 < min_y1) then
+    if #combined_axes==0 then
+        local min_x1,max_x1,min_y1,max_y1=bw,0,bh,0
+        for c in all(corners)do min_x1=min(min_x1,c.x)max_x1=max(max_x1,c.x)min_y1=min(min_y1,c.y)max_y1=max(max_y1,c.y)end
+        local min_x2,max_x2,min_y2,max_y2=bw,0,bh,0
+        for c in all(ep_corners)do min_x2=min(min_x2,c.x)max_x2=max(max_x2,c.x)min_y2=min(min_y2,c.y)max_y2=max(max_y2,c.y)end
+        if not(max_x1<min_x2 or max_x2<min_x1 or max_y1<min_y2 or max_y2<min_y1)then
             return false 
         end
         goto next_ep_check 
     end
 
-    local collision_with_ep = true
-    for ax in all(combined_axes) do
-      local min1, max1 = project(corners, ax)
-      local min2, max2 = project(ep_corners, ax)
-      if max1 < min2 or max2 < min1 then
-        collision_with_ep = false
+    local collision_with_ep=true
+    for ax in all(combined_axes)do
+      local min1,max1=project(corners,ax)
+      local min2,max2=project(ep_corners,ax)
+      if max1<min2 or max2<min1 then
+        collision_with_ep=false
         break
       end
     end
@@ -668,23 +616,23 @@ function legal_placement(piece_params)
     ::next_ep_check::
   end
 
-  if piece_params.type == "attacker" then
-    local apex = corners[1]
-    local dir_x = cos(piece_params.orientation)
-    local dir_y = sin(piece_params.orientation)
-    local laser_hits_defender = false
-    for _, ep_obj in ipairs(pieces) do
-      if ep_obj.type == "defender" then
-        local def_corners = ep_obj:get_draw_vertices()
-        if not def_corners or #def_corners == 0 then goto next_laser_target_check end
-        for j = 1, #def_corners do
-          local k = (j % #def_corners) + 1
-          local ix, iy, t = ray_segment_intersect(
-            apex.x, apex.y, dir_x, dir_y,
-            def_corners[j].x, def_corners[j].y, def_corners[k].x, def_corners[k].y
+  if piece_params.type=="attacker"then
+    local apex=corners[1]
+    local dir_x=cos(piece_params.orientation)
+    local dir_y=sin(piece_params.orientation)
+    local laser_hits_defender=false
+    for _,ep_obj in ipairs(pieces)do
+      if ep_obj.type=="defender"then
+        local def_corners=ep_obj:get_draw_vertices()
+        if not def_corners or #def_corners==0 then goto next_laser_target_check end
+        for j=1,#def_corners do
+          local k=(j%#def_corners)+1
+          local ix,iy,t=ray_segment_intersect(
+            apex.x,apex.y,dir_x,dir_y,
+            def_corners[j].x,def_corners[j].y,def_corners[k].x,def_corners[k].y
           )
-          if t and t >= 0 and t <= LASER_LEN then
-            laser_hits_defender = true
+          if t and t>=0 and t<=LASER_LEN then
+            laser_hits_defender=true
             break
           end
         end
@@ -698,32 +646,31 @@ function legal_placement(piece_params)
   return true
 end
 
-function place_piece(piece_params, player_obj)
-  if legal_placement(piece_params) then
-    local piece_color_to_place = piece_params.color -- Strictly use the color from params
+function place_piece(piece_params,player_obj)
+  if legal_placement(piece_params)then
+    local piece_color_to_place=piece_params.color
 
-    if piece_color_to_place == nil then
+    if piece_color_to_place==nil then
       printh("PLACE ERROR: piece_params.color is NIL!")
-      return false -- Fail if no color specified by controls
+      return false
     end
     
     printh("Place attempt: P"..player_obj.id.." color: "..tostring(piece_color_to_place).." type: "..piece_params.type)
 
-    if player_obj:use_piece_from_stash(piece_color_to_place) then
-      -- piece_params already contains the .color, create_piece should use it
-      local new_piece_obj = create_piece(piece_params) 
+    if player_obj:use_piece_from_stash(piece_color_to_place)then
+      local new_piece_obj=create_piece(piece_params)
       if new_piece_obj then
-        add(pieces, new_piece_obj)
-        score_pieces() -- Recalculate scores after placing a piece
-        printh("Placed piece with color: " .. tostring(new_piece_obj:get_color()))
+        add(pieces,new_piece_obj)
+        score_pieces()
+        printh("Placed piece with color: "..tostring(new_piece_obj:get_color()))
         return true
       else
         printh("Failed to create piece object after stash use.")
-        player_obj:add_captured_piece(piece_color_to_place) -- Return piece to stash
+        player_obj:add_captured_piece(piece_color_to_place)
         return false
       end
     else
-      printh("P" .. player_obj.id .. " has no piece of color " .. tostring(piece_color_to_place) .. " in stash.")
+      printh("P"..player_obj.id.." has no piece of color "..tostring(piece_color_to_place).." in stash.")
       return false
     end
   else
@@ -732,181 +679,141 @@ function place_piece(piece_params, player_obj)
   end
 end
 -->8
---#globals controls_disabled cursors player_manager btn btnp max min add ipairs pairs attempt_capture place_piece printh CSTATE_MOVE_SELECT CSTATE_ROTATE_PLACE CSTATE_COOLDOWN original_update_game_logic_func
-
-local CSTATE_MOVE_SELECT = 0
-local CSTATE_ROTATE_PLACE = 1
-local CSTATE_COOLDOWN = 2
-
+--controls
+local CSTATE_MOVE_SELECT=0
+local CSTATE_ROTATE_PLACE=1
+local CSTATE_COOLDOWN=2
 function update_controls()
-  if controls_disabled then return end -- Add this line to disable controls
-
-  local cursor_speed = 2        -- pixels per frame; adjust as needed
-  local rotation_speed = 0.02   -- rotation amount per frame; adjust
-
-  -- Iterate through each player's cursor in the global 'cursors' table.
-  for i, cur in ipairs(cursors) do
-    local current_player_obj = player_manager.get_player(i)
+  if controls_disabled then return end
+  local cursor_speed=2
+  local rotation_speed=0.02
+  for i,cur in ipairs(cursors)do
+    local current_player_obj=player_manager.get_player(i)
     if not current_player_obj then goto next_cursor_ctrl end
+    if cur.control_state==CSTATE_MOVE_SELECT then
+      if btn(⬅️,i-1)then cur.x=max(0,cur.x-cursor_speed)end
+      if btn(➡️,i-1)then cur.x=min(cur.x+cursor_speed,128-8)end
+      if btn(⬆️,i-1)then cur.y=max(0,cur.y-cursor_speed)end
+      if btn(⬇️,i-1)then cur.y=min(cur.y+cursor_speed,128-8)end
 
-    if cur.control_state == CSTATE_MOVE_SELECT then
-      -- Continuous movement with the d-pad.
-      if btn(⬅️, i - 1) then cur.x = max(0, cur.x - cursor_speed) end
-      if btn(➡️, i - 1) then cur.x = min(cur.x + cursor_speed, 128 - 8) end
-      if btn(⬆️, i - 1) then cur.y = max(0, cur.y - cursor_speed) end
-      if btn(⬇️, i - 1) then cur.y = min(cur.y + cursor_speed, 128 - 8) end
-
-      -- Cycle piece/action type (using Button O)
-      if btnp(🅾️, i - 1) then
-        if cur.pending_type == "defender" then
-          cur.pending_type = "attacker"
-        elseif cur.pending_type == "attacker" then
-          cur.pending_type = "capture"
-        elseif cur.pending_type == "capture" then
-          cur.pending_type = "defender"
+      if btnp(🅾️,i-1)then
+        if cur.pending_type=="defender"then
+          cur.pending_type="attacker"
+        elseif cur.pending_type=="attacker"then
+          cur.pending_type="capture"
+        elseif cur.pending_type=="capture"then
+          cur.pending_type="defender"
         end
       end
 
-      -- Initiate placement/rotation with Button X.
-      if btnp(❎, i - 1) then
-        if cur.pending_type == "capture" then
-          if attempt_capture(current_player_obj, cur) then
-            cur.control_state = CSTATE_COOLDOWN; cur.return_cooldown = 6
-            if original_update_game_logic_func then original_update_game_logic_func() end -- Recalculate immediately
-          else
-            printh("P" .. i .. ": Capture failed.")
+      if btnp(❎,i-1)then
+        if cur.pending_type=="capture"then
+          if attempt_capture(current_player_obj,cur)then
+            cur.control_state=CSTATE_COOLDOWN;cur.return_cooldown=6
+            if original_update_game_logic_func then original_update_game_logic_func()end
           end
         else
-          cur.control_state = CSTATE_ROTATE_PLACE
-          cur.pending_orientation = 0 -- Reset orientation when starting placement
+          cur.control_state=CSTATE_ROTATE_PLACE
+          cur.pending_orientation=0
         end
       end
-
-
-    elseif cur.control_state == CSTATE_ROTATE_PLACE then
-      -- Gather available colors in stash
-      local available_colors = {}
-      -- Use stash_counts (the map) instead of stash (the old array)
+    elseif cur.control_state==CSTATE_ROTATE_PLACE then
+      local available_colors={}
       if current_player_obj and current_player_obj.stash_counts then
-        for color, count in pairs(current_player_obj.stash_counts) do
-          if count > 0 then add(available_colors, color) end
+        for color,count in pairs(current_player_obj.stash_counts)do
+          if count>0 then add(available_colors,color)end
         end
       end
-      -- If no color, fallback to player's own color
-      if #available_colors == 0 then available_colors = {current_player_obj:get_color()} end
-      -- Clamp color_select_idx
-      if cur.color_select_idx > #available_colors then cur.color_select_idx = 1 end
-      if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
+      if #available_colors==0 then available_colors={current_player_obj:get_color()}end
+      if cur.color_select_idx>#available_colors then cur.color_select_idx=1 end
+      if cur.color_select_idx<1 then cur.color_select_idx=#available_colors end
 
-      -- Cycle color selection with up/down
-      if btnp(⬆️, i - 1) then
-        cur.color_select_idx = cur.color_select_idx - 1
-        if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
-      elseif btnp(⬇️, i - 1) then
-        cur.color_select_idx = cur.color_select_idx + 1
-        if cur.color_select_idx > #available_colors then cur.color_select_idx = 1 end
+      if btnp(⬆️,i-1)then
+        cur.color_select_idx=cur.color_select_idx-1
+        if cur.color_select_idx<1 then cur.color_select_idx=#available_colors end
+      elseif btnp(⬇️,i-1)then
+        cur.color_select_idx=cur.color_select_idx+1
+        if cur.color_select_idx>#available_colors then cur.color_select_idx=1 end
       end
 
-      -- Rotate pending piece using left/right
-      if btn(⬅️, i - 1) then
-        cur.pending_orientation = cur.pending_orientation - rotation_speed
-        if cur.pending_orientation < 0 then cur.pending_orientation = cur.pending_orientation + 1 end
+      if btn(⬅️,i-1)then
+        cur.pending_orientation=cur.pending_orientation-rotation_speed
+        if cur.pending_orientation<0 then cur.pending_orientation=cur.pending_orientation+1 end
       end
-      if btn(➡️, i - 1) then
-        cur.pending_orientation = cur.pending_orientation + rotation_speed
-        if cur.pending_orientation >= 1 then cur.pending_orientation = cur.pending_orientation - 1 end
+      if btn(➡️,i-1)then
+        cur.pending_orientation=cur.pending_orientation+rotation_speed
+        if cur.pending_orientation>=1 then cur.pending_orientation=cur.pending_orientation-1 end
       end
 
-      -- Set pending_color to selected color
-      cur.pending_color = available_colors[cur.color_select_idx] or current_player_obj:get_color()
+      cur.pending_color=available_colors[cur.color_select_idx]or current_player_obj:get_color()
 
-      -- Confirm placement with Button X.
-      if btnp(❎, i - 1) then
-        local piece_params = {
-          owner_id = i, -- Use player index as owner_id
-          type = cur.pending_type,
-          position = { x = cur.x + 4, y = cur.y + 4 },
-          orientation = cur.pending_orientation,
-          color = cur.pending_color -- Add the selected color to piece_params
+      if btnp(❎,i-1)then
+        local piece_params={
+          owner_id=i,
+          type=cur.pending_type,
+          position={x=cur.x+4,y=cur.y+4},
+          orientation=cur.pending_orientation,
+          color=cur.pending_color
         }
-        if place_piece(piece_params, current_player_obj) then
-          cur.control_state = CSTATE_COOLDOWN
-          cur.return_cooldown = 6  -- 6-frame cooldown after placement
-          if original_update_game_logic_func then original_update_game_logic_func() end -- Recalculate board state
-        else
-          printh("Placement failed for P" .. i)
+        if place_piece(piece_params,current_player_obj)then
+          cur.control_state=CSTATE_COOLDOWN
+          cur.return_cooldown=6
+          if original_update_game_logic_func then original_update_game_logic_func()end
         end
       end
-
-
-      -- Cancel placement with Button O.
-      if btnp(🅾️, i - 1) then
-        cur.control_state = CSTATE_MOVE_SELECT
+      if btnp(🅾️,i-1)then
+        cur.control_state=CSTATE_MOVE_SELECT
       end
 
-    elseif cur.control_state == CSTATE_COOLDOWN then
-      -- Decrement cooldown timer and snap cursor back to spawn when done.
-      cur.return_cooldown = cur.return_cooldown - 1
-      if cur.return_cooldown <= 0 then
-        cur.x = cur.spawn_x
-        cur.y = cur.spawn_y
-        cur.control_state = CSTATE_MOVE_SELECT
-        cur.pending_orientation = 0
-        cur.pending_type = "defender"
-        cur.pending_color = (current_player_obj and current_player_obj:get_ghost_color()) or 7
+    elseif cur.control_state==CSTATE_COOLDOWN then
+      cur.return_cooldown=cur.return_cooldown-1
+      if cur.return_cooldown<=0 then
+        cur.x=cur.spawn_x
+        cur.y=cur.spawn_y
+        cur.control_state=CSTATE_MOVE_SELECT
+        cur.pending_orientation=0
+        cur.pending_type="defender"
+        cur.pending_color=(current_player_obj and current_player_obj:get_ghost_color())or 7
       end
     end
     ::next_cursor_ctrl::
   end
 end
 -->8
--- src/6.ui.lua
--- This file will contain functions for drawing UI elements,
--- including the main menu and in-game HUD.
+--ui
+ui={}
 
---#globals cls print N_PLAYERS player_manager cursors global_game_state player_count stash_count menu_option menu_player_count menu_stash_size game_timer tostring rectfill min type pairs ipairs btnp max STASH_SIZE countdown_timer line cos sin all
-
-ui = {}
--- Removed local caching of N_PLAYERS and player_manager (NP, PM)
--- Functions will use global N_PLAYERS and player_manager directly for up-to-date values.
-
--- 3D wireframe pyramid for menu background
-local pyr_vertices = {
-  {0, -0.8, 0},    -- top
-  {-1, 0.8, -1},   -- base 1
-  {1, 0.8, -1},    -- base 2
-  {1, 0.8, 1},     -- base 3
-  {-1, 0.8, 1}     -- base 4
+local pyr_vertices={
+  {0,-0.8,0},
+  {-1,0.8,-1},
+  {1,0.8,-1},
+  {1,0.8,1},
+  {-1,0.8,1}
 }
-local pyr_edges = {
-  {1,2},{1,3},{1,4},{1,5}, -- sides
-  {2,3},{3,4},{4,5},{5,2} -- base
+local pyr_edges={
+  {1,2},{1,3},{1,4},{1,5},
+  {2,3},{3,4},{4,5},{5,2}
 }
-local pyr_angle_x = 0
-local pyr_angle_y = 0
-local pyr_angle_z = 0
+local pyr_angle_x=0
+local pyr_angle_y=0
+local pyr_angle_z=0
 
-function pyr_rotate_point(v, ax, ay, az)
-  -- Rotate around x, y, z (Euler)
-  local x, y, z = v[1], v[2], v[3]
-  -- X
-  local cy, sy = cos(ax), sin(ax)
-  y, z = y*cy-z*sy, y*sy+z*cy
-  -- Y
-  local cx, sx = cos(ay), sin(ay)
-  x, z = x*cx+z*sx, -x*sx+z*cx
-  -- Z
-  local cz, sz = cos(az), sin(az)
-  x, y = x*cz-y*sz, x*sz+y*cz
-  return {x, y, z}
+function pyr_rotate_point(v,ax,ay,az)
+  local x,y,z=v[1],v[2],v[3]
+  local cy,sy=cos(ax),sin(ax)
+  y,z=y*cy-z*sy,y*sy+z*cy
+  local cx,sx=cos(ay),sin(ay)
+  x,z=x*cx+z*sx,-x*sx+z*cx
+  local cz,sz=cos(az),sin(az)
+  x,y=x*cz-y*sz,x*sz+y*cz
+  return{x,y,z}
 end
 
-function pyr_project_point(v, projection_scale)
-  -- Simple perspective projection
-  local viewer_z = 3
-  local px = v[1] / (viewer_z - v[3])
-  local py = v[2] / (viewer_z - v[3])
-  return 64 + px*projection_scale, 64 + py*projection_scale
+function pyr_project_point(v,projection_scale)
+  local viewer_z=3
+  local px=v[1]/(viewer_z-v[3])
+  local py=v[2]/(viewer_z-v[3])
+  return 64+px*projection_scale,64+py*projection_scale
 end
 
 function draw_pyramid(size, color)
@@ -923,49 +830,48 @@ function draw_pyramid(size, color)
     pts2d[i] = {sx, sy}
   end
   -- Draw edges
-  local edge_color = color or 6 -- Default color if not provided
-  for e in all(pyr_edges) do
-    local a, b = pts2d[e[1]], pts2d[e[2]]
-    line(a[1], a[2], b[1], b[2], edge_color)
+  local edge_color=color or 6
+  for e in all(pyr_edges)do
+    local a,b=pts2d[e[1]],pts2d[e[2]]
+    line(a[1],a[2],b[1],b[2],edge_color)
   end
 end
 
 function ui.draw_main_menu()
   cls(0)
-  draw_pyramid(48, 6) -- Call with default size 48 and color 6
-  print("P8PANIC", 48, 20, 7)
-  local options = {
-    "Players: " .. (menu_player_count or N_PLAYERS or 2),
-    "Stash Size: " .. (menu_stash_size or STASH_SIZE or 3),
-    "Game Timer: " .. (game_timer or 3) .. " min",
+  draw_pyramid(48,6)
+  print("P8PANIC",48,20,7)
+  local options={
+    "Players: "..(menu_player_count or N_PLAYERS or 2),
+    "Stash Size: "..(menu_stash_size or STASH_SIZE or 3),
+    "Game Timer: "..(game_timer or 3).." min",
     "Start Game",
-    "Finish Game", -- New option
+    "Finish Game",
     "How To Play"
   }
-  for i, opt in ipairs(options) do
-    local y = 38 + i * 9 -- Adjusted y spacing slightly for more options
-    local col = (menu_option == i and 11) or 7
-    print(opt, 20, y, col)
-    if menu_option == i then
-      print("\136", 10, y, 11)
+  for i,opt in ipairs(options)do
+    local y=38+i*9
+    local col=(menu_option==i and 11)or 7
+    print(opt,20,y,col)
+    if menu_option==i then
+      print("\136",10,y,11)
     end
   end
 end
 
--- Draw how-to-play screen
 function ui.draw_how_to_play()
   cls(0)
-  print("HOW TO PLAY", 30, 20, 7)
-  print("Use arrows to navigate", 10, 40, 7)
-  print("Press (X) to select", 10, 50, 7)
-  print("Press (X) to return", 10, 100, 7)
+  print("HOW TO PLAY",30,20,7)
+  print("Use arrows to navigate",10,40,7)
+  print("Press (X) to select",10,50,7)
+  print("Press (X) to return",10,100,7)
 end
 
 function ui.draw_game_hud()
-  local screen_w = 128
-  local screen_h = 128
-  local margin = 5
-  local line_h = 6 -- Standard Pico-8 font height (5px char + 1px spacing)
+  local screen_w=128
+  local screen_h=128
+  local margin=5
+  local line_h=6
 
   local corners = {
     -- P1: Top-Left (score at y, stash below)
@@ -1235,212 +1141,137 @@ function ui.draw_panic_screen() -- New function for drawing "Panic!"
   print(text, x, y, 8) -- Use a different color, e.g., red (8)
 end
 -->8
--- src/7.cursor.lua
---#eval player_manager=player_manager,rectfill=rectfill,circfill=circfill,line=line,cos=cos,sin=sin,print=print,create_piece=create_piece
-
--- Default cursor properties
-local default_cursor_props = {
-  control_state = 0, -- CSTATE_MOVE_SELECT (as defined in 5.controls.lua)
-  pending_type = "defender",
-  pending_orientation = 0,
-  color_select_idx = 1,
-  return_cooldown = 0,
-  -- spawn_x, spawn_y will be set by create_cursor
-  -- pending_color will be set based on player or selection
+--cursor
+local default_cursor_props={
+  control_state=0,
+  pending_type="defender",
+  pending_orientation=0,
+  color_select_idx=1,
+  return_cooldown=0,
 }
-
-function create_cursor(player_id, initial_x, initial_y)
-  local p_color = 7 -- Default to white if everything else fails
-  local p_ghost_color = 7 -- Default to white
-
+function create_cursor(player_id,initial_x,initial_y)
+  local p_color=7
+  local p_ghost_color=7
   if player_manager and player_manager.get_player then
-    local player = player_manager.get_player(player_id)
+    local player=player_manager.get_player(player_id)
     if player then
       if player.get_color then
-        p_color = player:get_color() -- Get primary color as a base
+        p_color=player:get_color()
       end
       if player.get_ghost_color then
-        local ghost_color_val = player:get_ghost_color()
-        if ghost_color_val then -- Ensure ghost color is not nil
-          p_ghost_color = ghost_color_val
-        else
-          p_ghost_color = p_color -- Fallback to primary color if ghost is nil
-          printh("Warning: P"..player_id.." ghost color was nil, using primary color.")
+        local ghost_color_val=player:get_ghost_color()
+        if ghost_color_val then
+          p_ghost_color=ghost_color_val
         end
-      else
-        p_ghost_color = p_color -- Fallback to primary color if no get_ghost_color method
-        printh("Warning: P"..player_id.." has no get_ghost_color method, using primary color.")
       end
-    else
-      printh("Warning: Could not get player object for P"..player_id.." for cursor color.")
     end
-  else
-    printh("Warning: player_manager or get_player not available for cursor color.")
   end
-  
-  local cur = {
-    id = player_id,
-    x = initial_x,
-    y = initial_y,
-    spawn_x = initial_x, -- Store spawn position
-    spawn_y = initial_y,
-    
-    -- Initialize properties from defaults
-    control_state = default_cursor_props.control_state,
-    pending_type = default_cursor_props.pending_type,
-    pending_orientation = default_cursor_props.pending_orientation,
-    pending_color = p_ghost_color, -- Use the determined ghost color
-    color_select_idx = default_cursor_props.color_select_idx,
-    return_cooldown = default_cursor_props.return_cooldown,
-
-    draw = function(self)
-      -- Placeholder cursor drawing: a small rectangle
-      -- rectfill(self.x, self.y, self.x + 1, self.y + 1, self.pending_color) -- Keep or remove as desired
-
-      if self.pending_type == "attacker" or self.pending_type == "defender" then
-        -- Draw ghost piece
-        local ghost_piece_params = {
-          owner_id = self.id,
-          type = self.pending_type,
-          position = { x = self.x + 4, y = self.y + 4 }, -- Centered on cursor
-          orientation = self.pending_orientation,
-          color = self.pending_color,
-          is_ghost = true -- Add a flag to indicate this is a ghost piece for drawing
+  local cur={
+    id=player_id,
+    x=initial_x,
+    y=initial_y,
+    spawn_x=initial_x,
+    spawn_y=initial_y,
+    control_state=default_cursor_props.control_state,
+    pending_type=default_cursor_props.pending_type,
+    pending_orientation=default_cursor_props.pending_orientation,
+    pending_color=p_ghost_color,
+    color_select_idx=default_cursor_props.color_select_idx,
+    return_cooldown=default_cursor_props.return_cooldown,
+    draw=function(self)
+      local cursor_color
+      if player_manager and player_manager.get_player then
+        local p=player_manager.get_player(self.id)
+        if p and p.get_color then
+          cursor_color=p:get_color()
+        end
+      end
+      if not cursor_color then
+        cursor_color=self.pending_color
+      end
+      
+      local cx,cy=self.x+4,self.y+4
+      -- Draw X-shaped crosshair with 5-pixel size
+      line(cx-2,cy-2,cx+2,cy+2,cursor_color)
+      line(cx-2,cy+2,cx+2,cy-2,cursor_color)
+      
+      -- Show ghost piece only when applicable
+      if self.pending_type=="attacker" or self.pending_type=="defender" then
+        local ghost_piece_params={
+          owner_id=self.id,
+          type=self.pending_type,
+          position={x=self.x+4,y=self.y+4},
+          orientation=self.pending_orientation,
+          color=self.pending_color,
+          is_ghost=true
         }
-        -- Assuming create_piece returns a piece object with a draw method
-        local ghost_piece = create_piece(ghost_piece_params)
+        local ghost_piece=create_piece(ghost_piece_params)
         if ghost_piece and ghost_piece.draw then
           ghost_piece:draw()
         end
-      elseif self.pending_type == "capture" then
-        -- Render crosshair
-        local crosshair_color = self.pending_color
-        if player_manager and player_manager.get_player then
-            local p = player_manager.get_player(self.id)
-            if p and p.get_color then
-                crosshair_color = p:get_color()
-            end
-        end
-        local cx, cy = self.x + 4, self.y + 4 -- Center of the 8x8 cursor grid
-        local arm_len = 3
-        -- Horizontal line
-        line(cx - arm_len, cy, cx + arm_len, cy, crosshair_color)
-        -- Vertical line
-        line(cx, cy - arm_len, cx, cy + arm_len, crosshair_color)
-        -- Optional: small circle in the middle
-        -- circfill(cx, cy, 1, crosshair_color)
       end
-
-      -- If in rotation/placement mode, show pending piece outline (simplified)
-      -- This might be redundant if ghost piece is already drawn above
-      -- if self.control_state == 1 then -- CSTATE_ROTATE_PLACE
-      --    -- This would be more complex, showing the actual piece shape and orientation
-      --    line(self.x+4, self.y+4, self.x+4 + cos(self.pending_orientation)*8, self.y+4 + sin(self.pending_orientation)*8, self.pending_color)
-      -- end
     end
   }
   return cur
 end
-
--- PICO-8 automatically makes functions global if they are not declared local
--- So, create_cursor will be global by default.
 -->8
--- src/8.main.lua
--- Main game loop functions (_init, _update, _draw)
-
---#globals player_manager pieces cursors ui N_PLAYERS STASH_SIZE global_game_state game_timer time flr string add table countdown_timer controls_disabled config create_cursor
---#globals menu_option menu_player_count menu_stash_size player_count stash_count
---#globals internal_update_game_logic update_game_logic update_controls original_update_game_logic_func original_update_controls_func update_game_state game_state_changed
---#globals printh all cls btnp menuitem print rectfill tostr initiate_game_start_request panic_display_timer
-
--- Ensure global variables are accessible in this file
-if not N_PLAYERS then N_PLAYERS = 2 end  -- Default fallback
-if not table then table = table or {} end  -- Ensure table is available
-
--- Ensure ui_handler is assigned from the global ui table from 6.ui.lua
-local ui_handler -- local to this file, assigned in _init
-
-local game_start_time = 0
-local remaining_time_seconds = 0
-
-local game_winners = {} -- Stores list of winner IDs
-local game_max_score = -1 -- Stores the max score achieved
-local processed_game_over = false -- Flag to ensure winner calculation runs once per game_over state entry
-local controls_disabled = false -- Add this line
-
-------------------------------------------
--- Main Pico-8 Functions
-------------------------------------------
+--main
+if not N_PLAYERS then N_PLAYERS=2 end
+if not table then table=table or{}end
+local ui_handler
+local game_start_time=0
+local remaining_time_seconds=0
+local game_winners={}
+local game_max_score=-1
+local processed_game_over=false
+local controls_disabled=false
 function _init()
-  
-  if player_manager == nil then 
-    printh("CRITICAL: player_manager is nil in _init of 7.main.lua!")
-    player_manager = {} -- Fallback, but indicates load order issue
+  if player_manager==nil then 
+    player_manager={}
   end
-  if pieces == nil then pieces = {} end
-  if cursors == nil then cursors = {} end
-  
+  if pieces==nil then pieces={}end
+  if cursors==nil then cursors={}end
   if ui then
-    ui_handler = ui
+    ui_handler=ui
   else 
-    printh("Warning: global 'ui' (from 6.ui.lua) not found in _init. UI might not draw.")
-    ui_handler = {
-      draw_main_menu = function() print("NO UI - MAIN MENU", 40,60,8) end,
-      draw_game_hud = function() print("NO UI - GAME HUD", 40,60,8) end,
-      draw_how_to_play = function() print("NO UI - HOW TO PLAY", 20,60,8) end,
-      draw_winner_screen = function() cls(0) print("NO UI - WINNER SCREEN", 20,60,8) end,
-      update_main_menu_logic = function() printh("Warning: NO UI - update_main_menu_logic not called") end
+    ui_handler={
+      draw_main_menu=function()print("NO UI - MAIN MENU",40,60,8)end,
+      draw_game_hud=function()print("NO UI - GAME HUD",40,60,8)end,
+      draw_how_to_play=function()print("NO UI - HOW TO PLAY",20,60,8)end,
+      draw_winner_screen=function()cls(0)print("NO UI - WINNER SCREEN",20,60,8)end,
+      update_main_menu_logic=function()end
     }
   end
-
-  -- Configure pause menu items for in-game state
-
-  menuitem(1, false) -- Clear item at index 1 (e.g., default "SOUND")
-  menuitem(2, false) -- Clear item at index 2 (e.g., default "MUSIC")
-  menuitem(3, false) -- Clear item at index 3 (e.g., default "EXIT")
-
-  -- Add "Return to Main Menu" at index 1
-  menuitem(1, "Return to Main Menu", function()
-    global_game_state = "main_menu" 
-    printh("Returning to main menu via pause menu...")
-    _init_main_menu_state() 
+  menuitem(1,false)
+  menuitem(2,false)
+  menuitem(3,false)
+  menuitem(1,"Return to Main Menu",function()
+    global_game_state="main_menu"
+    _init_main_menu_state()
   end)
-
-  -- Add "Finish Game" option at index 2
-  menuitem(2, "finish game", function() -- Capitalized label for consistency
-    -- Only allow finishing game if we're currently in a game
-    if global_game_state == "in_game" then
-      printh("Finishing game early via pause menu...")
-      -- Ensure players are properly initialized before calculating winners
+  menuitem(2,"finish game",function()
+    if global_game_state=="in_game"then
       if player_manager and player_manager.init_players then
         player_manager.init_players(N_PLAYERS)
       end
-      global_game_state = "game_over"
-      -- Reset the processed flag so winner calculation will run
-      processed_game_over = false
-    else
-      printh("Cannot finish game - not currently in game state")
+      global_game_state="game_over"
+      processed_game_over=false
     end
   end)
   
-  if global_game_state == "main_menu" then
+  if global_game_state=="main_menu"then
     _init_main_menu_state()
   else
-    -- If starting directly in game (e.g. for testing, by changing default global_game_state)
-    -- N_PLAYERS and STASH_SIZE should be their default values from 0.init.lua
-    player_count = N_PLAYERS
-    stash_count = STASH_SIZE
+    player_count=N_PLAYERS
+    stash_count=STASH_SIZE
     init_game_properly()
   end
 end
-
 function start_countdown()
   global_game_state = "countdown"
   countdown_timer = 3 -- 3 seconds
   controls_disabled = true
-  printh("EVENT: Countdown started! Initial CD: " .. tostr(countdown_timer)) -- Added detail
 end
-
 function _calculate_and_store_winners()
   local current_max_score = -1
   local current_winners = {}
@@ -1459,7 +1290,6 @@ function _calculate_and_store_winners()
   end
   game_winners = current_winners
   game_max_score = current_max_score
-  -- printh(\"Winners calculated: \" .. table.concat(game_winners, \", \") .. \" with score: \" .. game_max_score)
   local winners_str = ""
   for i, winner_id in ipairs(game_winners) do
     winners_str = winners_str .. winner_id
@@ -1467,142 +1297,59 @@ function _calculate_and_store_winners()
       winners_str = winners_str .. ", "
     end
   end
-  printh("Winners calculated: " .. winners_str .. " with score: " .. game_max_score)
 end
-
 function _update()
-  printh("UPDATE START State: " .. tostr(global_game_state) .. " CD: " .. tostr(countdown_timer) .. " Panic: " .. tostr(panic_display_timer) .. " CtrlDisabled: " .. tostr(controls_disabled))
-
   if initiate_game_start_request then -- Check the flag
     initiate_game_start_request = false -- Reset the flag
     init_game_properly() -- Call the function that starts the countdown
-    printh("UPDATE: init_game_properly done by request. New state: " .. tostr(global_game_state))
     return -- Exit _update early as state is changing
   end
-
-  if global_game_state == "countdown" then
-    countdown_timer -= 2/60 -- Made countdown twice as fast
-    if countdown_timer <= 0 then
-      printh("UPDATE: Countdown timer <= 0. Old CD: " .. tostr(countdown_timer) .. ". Changing to panic_display.")
-      global_game_state = "panic_display"
-      panic_display_timer = 1.5 -- Show "Panic!" for 1.5 seconds
-      controls_disabled = true -- Keep controls disabled during panic display
-      printh("UPDATE: State IS NOW panic_display. Panic Timer: " .. tostr(panic_display_timer))
-    end
-  elseif global_game_state == "panic_display" then -- Add this new state block
-    panic_display_timer -= 1/60
-    if panic_display_timer <= 0 then
-      printh("UPDATE: Panic timer <= 0. Old Panic: " .. tostr(panic_display_timer) .. ". Changing to in_game.")
-      global_game_state = "in_game"
-      controls_disabled = false
-      game_start_time = time()
-      if game_timer and type(game_timer) == "number" then
-          remaining_time_seconds = game_timer * 60
-      else
-          printh("UPDATE: game_timer not valid for setting remaining_time_seconds. Value: " .. tostr(game_timer))
-          remaining_time_seconds = 180 -- Default to 3 minutes if game_timer is problematic
-      end
-      printh("UPDATE: State IS NOW in_game. Start: " .. tostr(game_start_time) .. " Rem: " .. tostr(remaining_time_seconds))
-    end
-  elseif global_game_state == "in_game" then
-    if remaining_time_seconds > 0 then
-      remaining_time_seconds -= 1/60 -- Pico-8 runs at 60 FPS for _update
-      if remaining_time_seconds <= 0 then
-        remaining_time_seconds = 0
-        printh("UPDATE: Game Over! Time is up.")
-        if update_game_state then
-          update_game_state() -- Recalculate scores one last time
-        end
-        global_game_state = "game_over"
-        processed_game_over = false -- Ensure winner calculation will run
-        printh("UPDATE: State IS NOW game_over (time up).")
-      end
-    else -- if remaining_time_seconds is already 0 or less
-        if global_game_state == "in_game" then 
-            printh("UPDATE: Game Over! Remaining time was already zero.")
-            global_game_state = "game_over"
-            processed_game_over = false
-            printh("UPDATE: State IS NOW game_over (remaining time zero).")
-        end
-    end
-    -- Actual game logic updates (player input, piece movement, scoring)
-    if not controls_disabled then
-        if update_controls then -- Call the main controls update function
-            update_controls()
-        end
-        if player_manager and player_manager.update_all_players then
-             player_manager.update_all_players() -- This might update player state based on control input
-        end
-        -- Add other game logic calls if they exist, e.g., for pieces
-        -- if pieces and pieces.update_all then pieces.update_all() end
-    end
-  elseif global_game_state == "game_over" then
-    if not processed_game_over then
-      _calculate_and_store_winners()
-      processed_game_over = true
-      printh("UPDATE: Winners calculated for game_over.")
-    end
-    -- Wait for a button press to return to main menu
-    if btnp(5) or btnp(4) then -- (X) or (O) button
-      global_game_state = "main_menu"
-      _init_main_menu_state()
-      printh("UPDATE: Returning to main_menu from game_over.")
-    end
-  end
-
   if global_game_state == "main_menu" then
-    printh("UPDATE: In main_menu state. ui_handler type: " .. tostr(type(ui_handler)) .. ", update_main_menu_logic type: " .. tostr(type(ui_handler and ui_handler.update_main_menu_logic)))
     if ui_handler and ui_handler.update_main_menu_logic then
       ui_handler.update_main_menu_logic()
-    else
-      printh("UPDATE: ERROR - ui_handler.update_main_menu_logic not callable or ui_handler is nil.")
+    end
+  elseif global_game_state == "how_to_play" then
+    -- return to main menu on Z
+    if btnp(4) then
+      global_game_state = "main_menu"
+      _init_main_menu_state()
     end
   elseif global_game_state == "countdown" then
     countdown_timer -= 2/60 -- Made countdown twice as fast
     if countdown_timer <= 0 then
-      printh("UPDATE: Countdown timer <= 0. Old CD: " .. tostr(countdown_timer) .. ". Changing to panic_display.")
       global_game_state = "panic_display"
       panic_display_timer = 1.5 -- Show "Panic!" for 1.5 seconds
       controls_disabled = true -- Keep controls disabled during panic display
-      printh("UPDATE: State IS NOW panic_display. Panic Timer: " .. tostr(panic_display_timer))
     end
   elseif global_game_state == "panic_display" then -- Add this new state block
     panic_display_timer -= 1/60
     if panic_display_timer <= 0 then
-      printh("UPDATE: Panic timer <= 0. Old Panic: " .. tostr(panic_display_timer) .. ". Changing to in_game.")
       global_game_state = "in_game"
       controls_disabled = false
       game_start_time = time()
       if game_timer and type(game_timer) == "number" then
           remaining_time_seconds = game_timer * 60
       else
-          printh("UPDATE: game_timer not valid for setting remaining_time_seconds. Value: " .. tostr(game_timer))
           remaining_time_seconds = 180 -- Default to 3 minutes if game_timer is problematic
       end
-      printh("UPDATE: State IS NOW in_game. Start: " .. tostr(game_start_time) .. " Rem: " .. tostr(remaining_time_seconds))
     end
   elseif global_game_state == "in_game" then
     if remaining_time_seconds > 0 then
       remaining_time_seconds -= 1/60 -- Pico-8 runs at 60 FPS for _update
       if remaining_time_seconds <= 0 then
         remaining_time_seconds = 0
-        printh("UPDATE: Game Over! Time is up.")
         if update_game_state then
           update_game_state() -- Recalculate scores one last time
         end
         global_game_state = "game_over"
         processed_game_over = false -- Ensure winner calculation will run
-        printh("UPDATE: State IS NOW game_over (time up).")
       end
     else -- if remaining_time_seconds is already 0 or less
         if global_game_state == "in_game" then 
-            printh("UPDATE: Game Over! Remaining time was already zero.")
             global_game_state = "game_over"
             processed_game_over = false
-            printh("UPDATE: State IS NOW game_over (remaining time zero).")
         end
     end
-    -- Actual game logic updates (player input, piece movement, scoring)
     if not controls_disabled then
         if update_controls then -- Call the main controls update function
             update_controls()
@@ -1610,28 +1357,20 @@ function _update()
         if player_manager and player_manager.update_all_players then
              player_manager.update_all_players() -- This might update player state based on control input
         end
-        -- Add other game logic calls if they exist, e.g., for pieces
-        -- if pieces and pieces.update_all then pieces.update_all() end
     end
   elseif global_game_state == "game_over" then
     if not processed_game_over then
       _calculate_and_store_winners()
       processed_game_over = true
-      printh("UPDATE: Winners calculated for game_over.")
     end
-    -- Wait for a button press to return to main menu
-    if btnp(5) or btnp(4) then -- (X) or (O) button
+    if btnp(4) then -- Z (confirm)
       global_game_state = "main_menu"
       _init_main_menu_state()
-      printh("UPDATE: Returning to main_menu from game_over.")
     end
   end
 end
-
 function _draw()
   cls(0) 
-  printh("DRAW START State: " .. tostr(global_game_state))
-
   if global_game_state == "main_menu" then
     if ui_handler and ui_handler.draw_main_menu then
       ui_handler.draw_main_menu()
@@ -1641,40 +1380,29 @@ function _draw()
       ui_handler.draw_how_to_play()
     end
   elseif global_game_state == "countdown" then
-    -- printh("Draw: Countdown state") -- DEBUG -- Covered by DRAW START
     if ui_handler and ui_handler.draw_countdown_screen then
       ui_handler.draw_countdown_screen()
     else
       print("NO UI - COUNTDOWN", 40, 60, 8)
     end
   elseif global_game_state == "panic_display" then -- Add this block
-    -- printh("Draw: Panic Display state") -- DEBUG -- Covered by DRAW START
     if ui_handler and ui_handler.draw_panic_screen then
       ui_handler.draw_panic_screen()
     else
       print("NO UI - PANIC DISPLAY", 40, 60, 8)
     end
   elseif global_game_state == "in_game" then
-    -- if ui_handler and ui_handler.draw_game_hud then -- This was replaced by _draw_game_screen
-    --   ui_handler.draw_game_hud()
-    -- end
-    _draw_game_screen() -- Draws timer, pieces, cursors, and HUD
+    -- draw game elements and HUD
+    _draw_game_screen()   -- Draw timer, pieces, and cursors
+    if ui_handler and ui_handler.draw_game_hud then
+      ui_handler.draw_game_hud()
+    end
   elseif global_game_state == "game_over" then
     if ui_handler and ui_handler.draw_winner_screen then
       ui_handler.draw_winner_screen() -- This function will use game_winners and game_max_score
-    else
-      -- Fallback minimal display if ui_handler or function is missing
-      cls(0) 
-      print("GAME OVER (NO UI)", 30, 50, 8)
-      print("Winner data not shown.", 20, 60, 7)
-      print("Press (X) to return", 28, 100, 7)
     end
   end
 end
-
-------------------------------------------
--- Menu Specific Logic (Initialization & Update)
-------------------------------------------
 function _init_main_menu_state()
   global_game_state = "main_menu"
   menu_option = 1 -- Default to first menu item
@@ -1682,8 +1410,6 @@ function _init_main_menu_state()
   if config and config.get_players_value then menu_player_count = config.get_players_value() else menu_player_count = N_PLAYERS end
   menu_stash_size = STASH_SIZE -- Assuming STASH_SIZE is the relevant config for menu
   if config and config.timer_options and config.current_timer_idx then game_timer = config.timer_options[config.current_timer_idx] else game_timer = 3 end -- Default game_timer
-
-  -- Reset game-specific variables if any were set
   pieces = {}
   cursors = {}
   if player_manager and player_manager.reset_all_players then
@@ -1694,63 +1420,44 @@ function _init_main_menu_state()
   processed_game_over = false
   controls_disabled = false -- Ensure controls are enabled in menu
 end
-
--- This function is called when "Start Game" is selected from the menu
-function _start_game()
-  -- Validate player and stash settings
+_start_game = function()
   if not menu_player_count or menu_player_count < 1 then
-    printh("Invalid player count: " .. tostring(menu_player_count) .. ". Cannot start game.")
     return
   end
   if not menu_stash_size or menu_stash_size < 1 then
-    printh("Invalid stash size: " .. tostring(menu_stash_size) .. ". Cannot start game.")
     return
   end
-
   N_PLAYERS = menu_player_count
   STASH_SIZE = menu_stash_size
-
-  -- Initialize game state variables
   global_game_state = "in_game"
   player_count = N_PLAYERS
   stash_count = STASH_SIZE
-
-  -- Notify other modules or systems of the new game state
   if game_state_changed then
     game_state_changed(global_game_state)
   end
-
-  printh("Game starting with " .. N_PLAYERS .. " players and stash size " .. STASH_SIZE)
-
-  -- Start the countdown before actual game begins
-  start_countdown()
+  init_game_properly() -- initialize players, cursors, pieces and start countdown
 end
-
-------------------------------------------
--- Game Specific Logic (Initialization, Update, Draw)
-------------------------------------------
 function init_game_properly()
-  printh("EVENT: init_game_properly called. N_PLAYERS: " .. tostr(N_PLAYERS) .. ", STASH_SIZE: " .. tostr(STASH_SIZE))
-  
   player_count = N_PLAYERS
   stash_count = STASH_SIZE
-
   if player_manager and player_manager.init_players then
     player_manager.init_players(N_PLAYERS)
   else
-    printh("Error: player_manager.init_players is not defined!")
     return -- Exit if critical function is missing
   end
-
   pieces = {} -- Clear any existing pieces
   cursors = {} -- Clear existing cursors
-
-  -- Create cursors for each player
+  -- spawn cursors at default positions: near each corner
+  local spawn_positions = {
+    {x=8, y=8},
+    {x=120-8, y=8},
+    {x=8, y=120-8},
+    {x=120-8, y=120-8}
+  }
   for i = 1, N_PLAYERS do
-    if create_cursor then -- Check if create_cursor exists
-      add(cursors, create_cursor(i)) -- create_cursor should handle player-specific setup
-    else
-      printh("Error: create_cursor function not found!")
+    if create_cursor then
+      local pos = spawn_positions[i] or {x=64, y=64}
+      add(cursors, create_cursor(i, pos.x, pos.y))
     end
   end
   
@@ -1761,24 +1468,11 @@ function init_game_properly()
       p.initialize_stash(STASH_SIZE) 
     end
   end
-
-  -- Set the game state to start the countdown
   start_countdown()
-
-  -- printh("Countdown started!") -- This is in start_countdown(), remove from here if redundant or keep for specific context
-  -- This specific printh is in start_countdown(), so it's removed from here to avoid duplication.
-  -- If it was meant to be here specifically, it can be re-added.
-
-  -- Reset game over processing flag
   processed_game_over = false
   game_winners = {} 
   game_max_score = -1
-  
-  printh("EVENT: Game initialized for " .. tostr(N_PLAYERS) .. " players. Countdown initiated.")
 end
-
-
--- Original game logic update function (if needed for complex interactions)
 function _update_game_logic()
   if original_update_game_logic_func then
     original_update_game_logic_func() 
@@ -1787,22 +1481,18 @@ function _update_game_logic()
     original_update_controls_func() 
   end
 end
-
 function _draw_game_screen()
   cls(0) 
-
-  -- Draw timer
   local minutes = flr(remaining_time_seconds / 60)
   local seconds = flr(remaining_time_seconds % 60)
   local seconds_str
   if seconds < 10 then
-    seconds_str = "0" .. tostr(seconds)
+    seconds_str = "0" .. (""..seconds)
   else
-    seconds_str = tostr(seconds)
+    seconds_str = ""..seconds
   end
-  local timer_str = tostr(minutes) .. ":" .. seconds_str
+  local timer_str = (""..minutes) .. ":" .. seconds_str
   print(timer_str, 64 - #timer_str * 2, 5, 7) -- Top-center
-
   if pieces then
     for piece_obj in all(pieces) do
       if piece_obj and piece_obj.draw then
@@ -1810,19 +1500,16 @@ function _draw_game_screen()
       end
     end
   end
-
   if cursors then
-    for _, cursor_obj in pairs(cursors) do -- Use pairs for sparse arrays or non-numeric keys
+    for _, cursor_obj in pairs(cursors) do
       if cursor_obj and cursor_obj.draw then
         cursor_obj:draw()
       end
     end
   end
-
+  -- Removed fallback cursor drawing since we have the X-shape implementation
   if ui_handler and ui_handler.draw_game_hud then
     ui_handler.draw_game_hud()
-  else
-    print("Error: ui_handler.draw_game_hud not found",0,0,7)
   end
 end
 
