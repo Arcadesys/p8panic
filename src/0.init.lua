@@ -4,7 +4,68 @@ function finish_game_menuitem()
     if score_pieces then score_pieces() end
     current_game_state = GAME_STATE_GAMEOVER
     GAME_TIMER = 0
-    gameover_timer = 2 -- 2 seconds pause before showing scores
+  end
+end
+
+gameover_timer = 2 -- 2 seconds pause before showing scores
+
+-- Pre-game countdown and panic sequence
+pre_game_state = nil -- nil, 'countdown', 'panic', 'done'
+pre_game_start_t = 0
+pre_game_sequence = {"3...", "2...", "1..."}
+
+-- Helper: draw a word/phrase from a sequence centered, one per second
+function draw_centered_sequence(seq, start_t, color)
+  local elapsed = time() - start_t
+  local idx = flr(elapsed) + 1
+  if idx <= #seq then
+    local s = seq[idx]
+    print(s, 64 - (#s * 2), 64, color or 7)
+    return false
+  end
+  return true
+end
+
+-- Helper: draw shaky red text in the center
+function draw_shaky_centered_text(s, color)
+  local ox = rnd(3) - 1.5
+  local oy = rnd(3) - 1.5
+  print(s, 64 - (#s * 2) + ox, 64 + oy, color or 8)
+end
+-- Call this to start the pre-game sequence before controls unlock
+function start_pre_game_sequence()
+  pre_game_state = 'countdown'
+  pre_game_start_t = time()
+end
+
+-- New function to update pre-game sequence state
+function update_pre_game_sequence()
+  if pre_game_state == 'countdown' then
+    local elapsed = time() - pre_game_start_t
+    local countdown_duration = #pre_game_sequence -- Each item is 1 second
+    if elapsed >= countdown_duration then
+      pre_game_state = 'panic'
+      pre_game_start_t = time() -- Reset timer for panic phase
+    end
+    return true -- Sequence is active
+  elseif pre_game_state == 'panic' then
+    if (time() - pre_game_start_t) >= 1 then -- Panic duration is 1 second
+      pre_game_state = 'done'
+      return false -- Sequence just finished
+    end
+    return true -- Sequence is active
+  elseif pre_game_state == 'done' or pre_game_state == nil then
+    return false -- Sequence is not active or finished
+  end
+  return false -- Default
+end
+
+-- New function to draw pre-game sequence text
+function draw_pre_game_text()
+  if pre_game_state == 'countdown' then
+    draw_centered_sequence(pre_game_sequence, pre_game_start_t, 7)
+  elseif pre_game_state == 'panic' then
+    draw_shaky_centered_text("panic!", 8)
   end
 end
 
@@ -224,6 +285,7 @@ function go_to_state(new_state)
     player_manager.init_players(PLAYER_COUNT)
     
     init_cursors(player_manager.get_player_count()) -- Cursors are initialized on game start
+    start_pre_game_sequence() -- Start the pre-game countdown
     GAME_TIMER_MAX = ROUND_TIME
     GAME_TIMER = GAME_TIMER_MAX -- Reset game timer
     
@@ -329,29 +391,36 @@ end
 
 
 function update_playing_state()
-  -- Update game controls
-  if original_update_controls_func then 
-    original_update_controls_func() 
-  else 
-    printh("Error: original_update_controls_func is nil in update_playing_state!") 
-  end
+  -- Update pre-game sequence state first
+  local pre_game_active = update_pre_game_sequence()
 
-  -- Update game logic - carefully wrapped to avoid errors
-  if original_update_game_logic_func then
-    if type(original_update_game_logic_func) == "function" then
-      original_update_game_logic_func()
-    else
-      printh("Error: original_update_game_logic_func is not a function in update_playing_state!")
+  -- Only update controls and game logic if pre-game is NOT in 'countdown'
+  if pre_game_state ~= 'countdown' then
+    if original_update_controls_func then 
+      original_update_controls_func() 
+    else 
+      printh("Error: original_update_controls_func is nil in update_playing_state!") 
     end
-  else 
-    printh("Error: original_update_game_logic_func is nil in update_playing_state!") 
+
+    if original_update_game_logic_func then
+      if type(original_update_game_logic_func) == "function" then
+        original_update_game_logic_func()
+      else
+        printh("Error: original_update_game_logic_func is not a function in update_playing_state!")
+      end
+    else 
+      printh("Error: original_update_game_logic_func is nil in update_playing_state!") 
+    end
   end
 
   -- Update game timer (decrease by 1/30th of a second each frame)
-  GAME_TIMER = max(0, GAME_TIMER - (1/30))
+  -- Only run game timer if pre-game sequence is fully done
+  if not pre_game_active then
+    GAME_TIMER = max(0, GAME_TIMER - (1/30))
+  end
 
   -- Check for game over condition when timer runs out
-  if GAME_TIMER <= 0 and current_game_state == GAME_STATE_PLAYING then
+  if GAME_TIMER <= 0 and current_game_state == GAME_STATE_PLAYING and not pre_game_active then
     -- Final scoring and move to gameover state
     if score_pieces then score_pieces() end
     current_game_state = GAME_STATE_GAMEOVER
@@ -403,44 +472,57 @@ function draw_menu_state()
 end
 
 function draw_playing_state_elements()
-  -- Draw game timer in MM:SS
-  local secs = flr(GAME_TIMER)
-  local timer_str = flr(secs/60) .. ":" .. (secs%60 < 10 and "0" or "") .. (secs%60)
-  print(timer_str, 62 - #timer_str*2, 2, GAME_TIMER < 30 and 8 or 7)
-  -- Draw pieces and cursors
-  for _,o in ipairs(pieces) do if o.draw then o:draw() end end
-  for _,c in ipairs(cursors) do if c.draw then c:draw() end end
-  -- Draw stash bars for each player
-  local m,fw,fh,bh,bw,bs,nb = 2,4,5,8,2,1,4
-  for i=1,player_manager.get_player_count() do
-    local p = player_manager.get_player(i)
-    if p then
-      local s = tostr(p:get_score())
-      local sw = #s*fw
-      local tw = nb*bw + (nb-1)*bs
-      local block_w = max(sw,tw)
-      local ax = (i==2 or i==4) and (128-m-block_w) or m
-      local ay = (i>=3) and (128-m-(fh+2+bh)) or m
-      -- score
-      print(s, ax + ((block_w-sw) * ((i==2 or i==4) and 1 or 0)), ay, p:get_color())
-      -- bars
-      local bx = (i==2 or i==4) and (ax + block_w - tw) or ax
-      local by = ay + fh + 1
-      for j=1,nb do
-        local col = player_manager.colors[j] or 0
-        local cnt = p.stash[col] or 0
-        local h = flr(cnt / STASH_SIZE * bh)
-        h = mid(0,h,bh)
-        if i==1 or i==2 then
-          -- Top players: bars grow down from just below score
-          if h>0 then rectfill(bx,by,bx+bw-1,by+h-1,col)
-          else line(bx,by,bx+bw-1,by,1) end
-        else
-          -- Bottom players: bars grow up from bottom as before
-          if h>0 then rectfill(bx,by+(bh-h),bx+bw-1,by+bh-1,col)
-          else line(bx,by+bh-1,bx+bw-1,by+bh-1,1) end
+  -- Draw pre-game text if the sequence is active
+  if pre_game_state == 'countdown' or pre_game_state == 'panic' then
+    draw_pre_game_text()
+    -- Also draw cursors during countdown and panic
+    for _,c in ipairs(cursors) do if c.draw then c:draw() end end
+    if pre_game_state == 'countdown' then
+      return -- Don't draw other game elements during countdown
+    end
+  end
+
+  -- If pre-game is done, or it's panic phase, draw normal game elements
+  if pre_game_state == 'done' or pre_game_state == 'panic' or pre_game_state == nil then
+    -- Draw game timer in MM:SS
+    local secs = flr(GAME_TIMER)
+    local timer_str = flr(secs/60) .. ":" .. (secs%60 < 10 and "0" or "") .. (secs%60)
+    print(timer_str, 62 - #timer_str*2, 2, GAME_TIMER < 30 and 8 or 7)
+    -- Draw pieces and cursors
+    for _,o in ipairs(pieces) do if o.draw then o:draw() end end
+    for _,c in ipairs(cursors) do if c.draw then c:draw() end end
+    -- Draw stash bars for each player
+    local m,fw,fh,bh,bw,bs,nb = 2,4,5,8,2,1,4
+    for i=1,player_manager.get_player_count() do
+      local p = player_manager.get_player(i)
+      if p then
+        local s = tostr(p:get_score())
+        local sw = #s*fw
+        local tw = nb*bw + (nb-1)*bs
+        local block_w = max(sw,tw)
+        local ax = (i==2 or i==4) and (128-m-block_w) or m
+        local ay = (i>=3) and (128-m-(fh+2+bh)) or m
+        -- score
+        print(s, ax + ((block_w-sw) * ((i==2 or i==4) and 1 or 0)), ay, p:get_color())
+        -- bars
+        local bx = (i==2 or i==4) and (ax + block_w - tw) or ax
+        local by = ay + fh + 1
+        for j=1,nb do
+          local col = player_manager.colors[j] or 0
+          local cnt = p.stash[col] or 0
+          local h = flr(cnt / STASH_SIZE * bh)
+          h = mid(0,h,bh)
+          if i==1 or i==2 then
+            -- Top players: bars grow down from just below score
+            if h>0 then rectfill(bx,by,bx+bw-1,by+h-1,col)
+            else line(bx,by,bx+bw-1,by,1) end
+          else
+            -- Bottom players: bars grow up from bottom as before
+            if h>0 then rectfill(bx,by+(bh-h),bx+bw-1,by+bh-1,col)
+            else line(bx,by+bh-1,bx+bw-1,by+bh-1,1) end
+          end
+          bx += bw + bs
         end
-        bx += bw + bs
       end
     end
   end
