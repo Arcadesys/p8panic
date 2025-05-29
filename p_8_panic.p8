@@ -23,13 +23,13 @@ original_update_controls_func = nil
 -------------------------------------------
 --#globals player_manager create_piece pieces LASER_LEN PLAYER_COUNT cursors CAPTURE_RADIUS_SQUARED
 --#globals ray_segment_intersect attempt_capture -- Core helpers defined in this file
---#globals update_controls score_pieces place_piece legal_placement -- Functions from modules
+--#globals update_controls score_pieces place_piece legal_placement create_cursor -- Functions from modules
 --#globals internal_update_game_logic original_update_game_logic_func original_update_controls_func
 --#globals GAME_STATE_MENU GAME_STATE_PLAYING current_game_state
 --#globals GAME_TIMER GAME_TIMER_MAX
 
 -- Game timer constants
-GAME_TIMER_MAX = 90 -- 90-second game rounds
+GAME_TIMER_MAX = 180 -- 180-second game rounds
 GAME_TIMER = GAME_TIMER_MAX
 
 -- CAPTURE_RADIUS_SQUARED = 64 -- (8*8) For capture proximity check -- Already defined above
@@ -118,10 +118,10 @@ end
 -- Initialize cursors for N players; they spawn in different screen corners.
 function init_cursors(num_players)
   local all_possible_spawn_points = {
-    {x = 4, y = 4},                -- P1: top-left
-    {x = 128 - 12, y = 4},           -- P2: top-right
-    {x = 4, y = 128 - 12},            -- P3: bottom-left
-    {x = 128 - 12, y = 128 - 12}     -- P4: bottom-right
+    {x = 18, y = 18},                -- P1: just outside top-left UI
+    {x = 128 - 18 - 1, y = 18},      -- P2: just outside top-right UI
+    {x = 18, y = 128 - 18 - 1},      -- P3: just outside bottom-left UI
+    {x = 128 - 18 - 1, y = 128 - 18 - 1} -- P4: just outside bottom-right UI
   }
 
   cursors = {} -- Clear existing cursors before re-initializing
@@ -135,17 +135,33 @@ function init_cursors(num_players)
       sp = {x = 4 + (i-1)*10, y = 4} -- Simple fallback
     end
 
-    local p_obj = player_manager.get_player(i)
-    cursors[i] = {
-      x = sp.x, y = sp.y,
-      spawn_x = sp.x, spawn_y = sp.y,
-      control_state = 0,       -- 0: Movement/Selection, 1: Rotation/Placement, 2: Cooldown/Return
-      pending_type = "defender",  -- "defender", "attacker", "capture"
-      pending_color = (p_obj and p_obj:get_ghost_color()) or 7,
-      pending_orientation = 0,
-      return_cooldown = 0,
-      color_select_idx = 1 -- For cycling stash colors during placement
-    }
+    -- Call create_cursor from 7.cursor.lua to create the cursor object
+    -- This object will have the correct draw method.
+    if create_cursor then
+      cursors[i] = create_cursor(i, sp.x, sp.y)
+      -- Initialize other properties if create_cursor doesn't set them all,
+      -- though ideally create_cursor should handle all necessary defaults.
+      -- For example, if create_cursor doesn't set spawn_x/spawn_y:
+      -- if cursors[i] then
+      --   cursors[i].spawn_x = sp.x
+      --   cursors[i].spawn_y = sp.y
+      -- end
+    else
+      printh("ERROR: create_cursor function is not defined! Cannot initialize cursors properly.")
+      -- Fallback to basic table if create_cursor is missing (will lack the advanced draw method)
+      cursors[i] = {
+        id = i,
+        x = sp.x, y = sp.y,
+        spawn_x = sp.x, spawn_y = sp.y,
+        control_state = 0,
+        pending_type = "defender",
+        pending_color = 7, -- Simplified fallback
+        pending_orientation = 0,
+        return_cooldown = 0,
+        color_select_idx = 1,
+        draw = function() printh("Fallback cursor draw for P"..i) end -- Basic fallback draw
+      }
+    end
   end
 end
 
@@ -328,126 +344,66 @@ function _update()
 end
 
 
+
 function draw_menu_state()
+  -- main title and prompt
   print("P8PANIC", 50, 40, 7)
   print("PRESS X OR O", 40, 54, 8)
   print("TO START", 50, 62, 8)
-  
-  -- Calculate colors based on selection
-  local stash_color = 11
-  local player_color = 11
-  
-  -- Make sure menu_selection is initialized
-  if not menu_selection then 
-    menu_selection = 1 
-  end
-  
-  if menu_selection == 1 then
-    stash_color = 7 -- Highlight with white when selected
-  elseif menu_selection == 2 then
-    player_color = 7 -- Highlight with white when selected
-  end
-  
-  -- Draw stash size option
-  if menu_selection == 1 then
-    print("> STASH SIZE: "..STASH_SIZE, 28, 80, stash_color)
-  else
-    print("  STASH SIZE: "..STASH_SIZE, 28, 80, stash_color)
-  end
-  
-  -- Draw player count option
-  if menu_selection == 2 then
-    print("> PLAYERS: "..PLAYER_COUNT, 28, 90, player_color)
-  else
-    print("  PLAYERS: "..PLAYER_COUNT, 28, 90, player_color)
-  end
-  
-  -- Draw controls help
-  print("\x8e/\x91: ADJUST \x83/\x82: SELECT", 16, 110, 6) -- ⬅️/➡️ and ⬆️/⬇️ icons
+  -- ensure menu_selection
+  if not menu_selection then menu_selection = 1 end
+  -- highlight colors
+  local stash_color = (menu_selection == 1) and 7 or 11
+  local player_color = (menu_selection == 2) and 7 or 11
+  -- stash size option
+  print((menu_selection == 1 and ">" or " ").." STASH SIZE: "..STASH_SIZE,
+        28, 80, stash_color)
+  -- player count option
+  print((menu_selection == 2 and ">" or " ").." PLAYERS: "..PLAYER_COUNT,
+        28, 90, player_color)
+  -- controls help icons
+  print("\x8e/\x91: ADJUST \x83/\x82: SELECT", 16, 110, 6) -- controls help icons
 end
 
 function draw_playing_state_elements()
-  -- Draw game timer at the top center in MM:SS format
-  local total_secs = flr(GAME_TIMER)
-  local mins = flr(total_secs / 60)
-  local secs = total_secs % 60
-  local timer_str = mins .. ":" .. (secs < 10 and "0" or "") .. secs
-  local timer_x = 62 - #timer_str * 2
-  local timer_color = 7 -- Default white
-  if GAME_TIMER < 30 then timer_color = 8 end -- Red for low time
-  print(timer_str, timer_x, 2, timer_color)
-  
-  -- Draw pieces
-  for _, piece_obj in ipairs(pieces) do
-    if piece_obj and piece_obj.draw then
-      piece_obj:draw()
-      -- Debug display of attacker count removed
-      -- No longer showing numbers above defenders
-    end
-  end
-  
-  for i, cur in ipairs(cursors) do
-    local current_player_obj = player_manager.get_player(i)
-    if not current_player_obj then goto next_cursor_draw end -- Skip if no player object
-
-    -- In placement mode, use the selected color for the ghost piece
-    local cursor_draw_color = cur.pending_color or ((current_player_obj and current_player_obj:get_ghost_color()) or 7)
-
-    if cur.control_state == 0 or cur.control_state == 2 then
-      if cur.pending_type == "defender" then
-        rect(cur.x, cur.y, cur.x + 7, cur.y + 7, cursor_draw_color)
-      elseif cur.pending_type == "attacker" then
-        local cx, cy = cur.x + 4, cur.y + 4
-        line(cx + 4, cy, cx - 2, cy - 3, cursor_draw_color)
-        line(cx - 2, cy - 3, cx - 2, cy + 3, cursor_draw_color)
-        line(cx - 2, cy + 3, cx + 4, cy, cursor_draw_color)
-      elseif cur.pending_type == "capture" then
-        local cx, cy = cur.x + 4, cur.y + 4
-        circfill(cx,cy,3,cursor_draw_color) -- Changed capture cursor to a circle
-        -- line(cx - 2, cy, cx + 2, cy, cursor_draw_color)
-        -- line(cx, cy - 2, cx, cy + 2, cursor_draw_color)
-      end
-    elseif cur.control_state == 1 then
-      local ghost_params = {
-        owner_id = i, type = cur.pending_type,
-        position = { x = cur.x + 4, y = cur.y + 4 },
-        orientation = cur.pending_orientation
-      }
-      local ghost_piece_obj = create_piece(ghost_params)
-      if ghost_piece_obj then
-        ghost_piece_obj.is_ghost = true
-        ghost_piece_obj.ghost_color_override = cursor_draw_color -- Use the calculated cursor_draw_color
-        ghost_piece_obj:draw()
-      end
-    end
-    ::next_cursor_draw::
-  end
-
-  local margin = 2
-  local font_width = 4
-  local font_height = 5
-  for i=1, player_manager.get_player_count() do
-    local p_obj = player_manager.get_player(i)
-    if p_obj then
-      local score_txt = p_obj:get_score() .. ""
-      local p_color = p_obj:get_color()
-      -- Draw score in corner
-      local x, y = margin, margin
-      if i == 1 then x, y = margin, margin
-      elseif i == 2 then x, y = 128 - margin - #score_txt * font_width, margin
-      elseif i == 3 then x, y = margin, 128 - margin - font_height
-      elseif i == 4 then x, y = 128 - margin - #score_txt * font_width, 128 - margin - font_height
-      end
-      print(score_txt, x, y, p_color)
-      -- Draw compact stash
-      local stash_y = y + font_height + 1
-      
-      for color, count in pairs(p_obj.stash) do
-        if count > 0 then
-          -- Draw color and count (e.g., "○5" in color 8)
-          print("○"..count, x, stash_y, color)
-          stash_y += font_height - 1 -- Slightly tighter spacing
+  -- Draw game timer in MM:SS
+  local secs = flr(GAME_TIMER)
+  local timer_str = flr(secs/60) .. ":" .. (secs%60 < 10 and "0" or "") .. (secs%60)
+  print(timer_str, 62 - #timer_str*2, 2, GAME_TIMER < 30 and 8 or 7)
+  -- Draw pieces and cursors
+  for _,o in ipairs(pieces) do if o.draw then o:draw() end end
+  for _,c in ipairs(cursors) do if c.draw then c:draw() end end
+  -- Draw stash bars for each player
+  local m,fw,fh,bh,bw,bs,nb = 2,4,5,8,2,1,4
+  for i=1,player_manager.get_player_count() do
+    local p = player_manager.get_player(i)
+    if p then
+      local s = tostr(p:get_score())
+      local sw = #s*fw
+      local tw = nb*bw + (nb-1)*bs
+      local block_w = max(sw,tw)
+      local ax = (i==2 or i==4) and (128-m-block_w) or m
+      local ay = (i>=3) and (128-m-(fh+2+bh)) or m
+      -- score
+      print(s, ax + ((block_w-sw) * ((i==2 or i==4) and 1 or 0)), ay, p:get_color())
+      -- bars
+      local bx = (i==2 or i==4) and (ax + block_w - tw) or ax
+      local by = ay + fh + 1
+      for j=1,nb do
+        local col = player_manager.colors[j] or 0
+        local cnt = p.stash[col] or 0
+        local h = flr(cnt / STASH_SIZE * bh)
+        h = mid(0,h,bh)
+        if i==1 or i==2 then
+          -- Top players: bars grow down from just below score
+          if h>0 then rectfill(bx,by,bx+bw-1,by+h-1,col)
+          else line(bx,by,bx+bw-1,by,1) end
+        else
+          -- Bottom players: bars grow up from bottom as before
+          if h>0 then rectfill(bx,by+(bh-h),bx+bw-1,by+bh-1,col)
+          else line(bx,by+bh-1,bx+bw-1,by+bh-1,1) end
         end
+        bx += bw + bs
       end
     end
   end
@@ -455,6 +411,8 @@ end
 
 function _draw()
   cls(0)
+  -- Draw background UI map
+  map(0, 0, 0, 0, 16, 16,0)
   if current_game_state == GAME_STATE_MENU then
     draw_menu_state()
   elseif current_game_state == GAME_STATE_PLAYING then
@@ -476,7 +434,8 @@ function Player:new(id, initial_score, color, ghost_color) -- Added initial_scor
     score = initial_score or 0,
     color = color,
     ghost_color = ghost_color,
-    stash = {} -- Initialize stash as an empty table
+    stash = {}, -- Initialize stash as an empty table
+    capture_mode = false -- Added capture_mode
   }
   -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player's own color
   instance.stash[color] = STASH_SIZE or 6
@@ -502,6 +461,16 @@ end
 -- Method to get player's ghost color
 function Player:get_ghost_color()
   return self.ghost_color
+end
+
+-- Method to check if player is in capture mode
+function Player:is_in_capture_mode()
+  return self.capture_mode
+end
+
+-- Method to toggle capture mode
+function Player:toggle_capture_mode()
+  self.capture_mode = not self.capture_mode
 end
 
 -- Method to add a captured piece to the stash
@@ -678,15 +647,19 @@ function _check_attacker_hit_piece(attacker_obj, target_obj, player_manager_para
         attacker_player:add_score(1)
       end
 
+      -- Update state of the target_obj based on hits
       if target_obj.type == "defender" then
-        if target_obj.hits == 1 then
-          target_obj.state = "successful"
+        if target_obj.hits >= 3 then
+          target_obj.state = "overcharged"
         elseif target_obj.hits == 2 then
           target_obj.state = "unsuccessful"
-        elseif target_obj.hits >= 3 then
-          target_obj.state = "overcharged"
+        elseif target_obj.hits == 1 then
+          target_obj.state = "successful"
         end
+        -- If a defender has 0 hits, its state is not changed here; it retains its prior state (e.g., from creation or previous scoring).
       end
+      -- Attacker pieces do not change their state to 'overcharged', 'unsuccessful', or 'successful' based on being hit.
+      -- Their state (e.g., 'neutral') would be managed by other game mechanics if needed.
       return true
     end
   end
@@ -1015,6 +988,14 @@ end
 -- local sqrt, abs = sqrt, abs
 
 function legal_placement(piece_params)
+  -- UI overlay forbidden zones (16x16 px in each corner)
+  local ui_zones = {
+    {x1=0, y1=0, x2=15, y2=15}, -- top-left
+    {x1=112, y1=0, x2=127, y2=15}, -- top-right
+    {x1=0, y1=112, x2=15, y2=127}, -- bottom-left
+    {x1=112, y1=112, x2=127, y2=127} -- bottom-right
+  }
+
   local bw, bh = 128, 128
   local temp_piece_obj = create_piece(piece_params)
   if not temp_piece_obj then return false end
@@ -1053,6 +1034,12 @@ function legal_placement(piece_params)
   if not corners or #corners == 0 then return false end -- No vertices to check
   for c in all(corners) do
     if c.x < 0 or c.x > bw or c.y < 0 or c.y > bh then return false end
+    -- Block placement if any vertex is inside a UI overlay zone
+    for z in all(ui_zones) do
+      if c.x >= z.x1 and c.x <= z.x2 and c.y >= z.y1 and c.y <= z.y2 then
+        return false
+      end
+    end
   end
 
   for _, ep_obj in ipairs(pieces) do
@@ -1178,7 +1165,7 @@ function update_controls()
 
     if not current_player_obj then goto next_cursor_ctrl end
 
-    -- Determine Player Status
+    -- Determine Player Status and Forced Action State
     local player_has_empty_stash = true
     if current_player_obj and current_player_obj.stash then
       for _color_id, count in pairs(current_player_obj.stash) do
@@ -1219,6 +1206,25 @@ function update_controls()
     end
     printh("P"..i.." FLAGS: EMPTY="..(player_has_empty_stash and "T" or "F").." HAS_DEF="..(player_has_successful_defender and "T" or "F").." FORCE_STATE="..forced_action_state) -- DEBUG
 
+    -- Handle player cycling piece/action type if in normal state and CSTATE_MOVE_SELECT
+    if cur.control_state == CSTATE_MOVE_SELECT and btnp(🅾️, i - 1) and forced_action_state == "normal" then
+        local current_orientation = cur.pending_orientation
+        if cur.pending_type == "defender" then
+            cur.pending_type = "attacker"
+        elseif cur.pending_type == "attacker" then
+            cur.pending_type = "capture"
+        elseif cur.pending_type == "capture" then
+            cur.pending_type = "defender"
+        end
+        cur.pending_orientation = current_orientation
+    end
+
+    -- Set player's capture_mode based on the FINAL cur.pending_type for this frame
+    if current_player_obj then
+        current_player_obj.capture_mode = (cur.pending_type == "capture")
+        printh("P"..i.." CAPTURE MODE: "..(current_player_obj.capture_mode and "ON" or "OFF").." PENDING_TYPE: "..cur.pending_type) -- DEBUG
+    end
+
     if cur.control_state == CSTATE_MOVE_SELECT then
       -- Continuous movement with the d-pad.
       if btn(⬅️, i - 1) then cur.x = max(0, cur.x - cursor_speed) end
@@ -1226,37 +1232,18 @@ function update_controls()
       if btn(⬆️, i - 1) then cur.y = max(0, cur.y - cursor_speed) end
       if btn(⬇️, i - 1) then cur.y = min(cur.y + cursor_speed, 128 - 8) end
 
-      -- Cycle piece/action type (using Button O)
-      if btnp(🅾️, i - 1) and forced_action_state == "normal" then
-        -- Store the current orientation to maintain it when switching types
-        local current_orientation = cur.pending_orientation
-        
-        if cur.pending_type == "defender" then
-          cur.pending_type = "attacker"
-        elseif cur.pending_type == "attacker" then
-          cur.pending_type = "capture"
-        elseif cur.pending_type == "capture" then
-          cur.pending_type = "defender"
-        end
-        
-        -- Keep the same orientation when switching types
-        cur.pending_orientation = current_orientation
-      end
-
-      -- Initiate placement/rotation with Button X.
+      -- Initiate placement/rotation/capture with Button X.
       if btnp(❎, i - 1) then
-        if forced_action_state == "capture_only" or cur.pending_type == "capture" then
+        if cur.pending_type == "capture" then -- If pending type is capture (either forced or selected)
           if attempt_capture(current_player_obj, cur) then
             cur.control_state = CSTATE_COOLDOWN; cur.return_cooldown = 6
             if original_update_game_logic_func then original_update_game_logic_func() end -- Recalculate immediately
           else
             printh("P" .. i .. ": Capture failed.")
           end
-        elseif forced_action_state == "must_place_defender" then
+        else -- pending_type is "defender" or "attacker"
           cur.control_state = CSTATE_ROTATE_PLACE
-          -- pending_type and pending_color are already set
-        else -- Normal state
-          cur.control_state = CSTATE_ROTATE_PLACE
+          -- Orientation and color will be handled in CSTATE_ROTATE_PLACE
           -- No longer resetting orientation when starting placement
         end
       end
@@ -1269,13 +1256,30 @@ function update_controls()
         add(available_colors, current_player_obj:get_color())
         cur.color_select_idx = 1 -- Ensure it's selected
       else
-        -- Gather available colors in stash
-        for color, count in pairs(current_player_obj.stash) do
-          if count > 0 then add(available_colors, color) end
+        -- Gather available colors in stash (player's own and captured)
+        if current_player_obj and current_player_obj.stash then -- Ensure player and stash exist
+          for color, count in pairs(current_player_obj.stash) do
+            if count > 0 then add(available_colors, color) end
+          end
         end
       end
-      -- If no color, fallback to player's own color
-      if #available_colors == 0 then available_colors = {current_player_obj:get_color()} end
+      
+      -- If no colors were added (e.g., stash is completely empty, which shouldn't happen if forced_action_state isn's capture_only),
+      -- or if in a state where only own color is allowed but not present (edge case).
+      -- Fallback to player's own color if available_colors is still empty.
+      -- This handles the scenario where a player might have 0 of their own color but prisoners.
+      if #available_colors == 0 and current_player_obj and current_player_obj:has_piece_in_stash(current_player_obj:get_color()) then
+         add(available_colors, current_player_obj:get_color())
+      elseif #available_colors == 0 then
+        -- If truly no pieces are placeable (e.g. empty stash and not forced to place defender)
+        -- this situation should ideally be handled by `forced_action_state` pushing to "capture_only"
+        -- or preventing entry into CSTATE_ROTATE_PLACE.
+        -- For safety, if we reach here with no available colors, revert to move/select.
+        printh("P"..i.." WARN: No available colors in ROTATE_PLACE, reverting state.")
+        cur.control_state = CSTATE_MOVE_SELECT
+        goto next_cursor_ctrl -- Skip further processing for this cursor this frame
+      end
+
       -- Clamp color_select_idx
       if cur.color_select_idx > #available_colors then cur.color_select_idx = 1 end
       if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
@@ -1305,7 +1309,15 @@ function update_controls()
       if forced_action_state == "must_place_defender" then
         cur.pending_color = current_player_obj:get_color()
       else
-        cur.pending_color = available_colors[cur.color_select_idx] or current_player_obj:get_color()
+        -- Ensure available_colors has entries before trying to access
+        if #available_colors > 0 then
+            cur.pending_color = available_colors[cur.color_select_idx] or current_player_obj:get_ghost_color() -- Fallback to ghost color
+        else
+            -- This case should ideally be prevented by earlier checks.
+            -- If somehow reached, use player's ghost color as a safe default.
+            cur.pending_color = current_player_obj:get_ghost_color() 
+            printh("P"..i.." WARN: Setting pending_color to ghost_color due to no available_colors.")
+        end
       end
 
       -- Confirm placement with Button X.
@@ -1388,11 +1400,14 @@ function create_cursor(player_id,initial_x,initial_y)
     color_select_idx=default_cursor_props.color_select_idx,
     return_cooldown=default_cursor_props.return_cooldown,
     draw=function(self)
+      printh("P"..self.id.." CURSOR: DRAW FUNCTION CALLED") -- <<< ADD THIS LINE
+
       local cursor_color
+      local current_player
       if player_manager and player_manager.get_player then
-        local p=player_manager.get_player(self.id)
-        if p and p.get_color then
-          cursor_color=p:get_color()
+        current_player = player_manager.get_player(self.id)
+        if current_player and current_player.get_color then
+          cursor_color=current_player:get_color()
         end
       end
       if not cursor_color then
@@ -1417,6 +1432,56 @@ function create_cursor(player_id,initial_x,initial_y)
         local ghost_piece=create_piece(ghost_piece_params)
         if ghost_piece and ghost_piece.draw then
           ghost_piece:draw()
+        end
+      end
+
+      -- Draw purple circles around capturable ships if in capture mode
+      if current_player and current_player:is_in_capture_mode() then
+        printh("P"..self.id.." CURSOR: In Capture Mode. Searching for capturable pieces...") -- DEBUG
+        if pieces then
+          local found_overcharged_defender_for_player = false
+          for _, my_piece in ipairs(pieces) do
+            -- Condition 1: Is it MY piece, is it a DEFENDER, and is it OVERCHARGED?
+            if my_piece.owner_id == self.id and my_piece.type == "defender" and my_piece.state == "overcharged" then
+              found_overcharged_defender_for_player = true
+              printh("P"..self.id.." CURSOR: Found OWNED OVERCHARGED DEFENDER (Owner: "..my_piece.owner_id..", Type: "..my_piece.type..", State: "..my_piece.state..")") -- DEBUG
+              
+              if my_piece.targeting_attackers and #my_piece.targeting_attackers > 0 then
+                printh("P"..self.id.." CURSOR: Overcharged defender has "..#my_piece.targeting_attackers.." targeting attacker(s).") -- DEBUG
+                
+                for _, attacker_to_capture in ipairs(my_piece.targeting_attackers) do
+                  if attacker_to_capture and attacker_to_capture.position then
+                    -- Condition 2: Is the targeting piece an ATTACKER? (Owner doesn't matter for highlighting)
+                    if attacker_to_capture.type == "attacker" then -- Removed owner check attacker_to_capture.owner_id ~= self.id
+                      local piece_pos = attacker_to_capture.position
+                      local radius = 5 -- Attackers are triangles, 5 should be a decent radius
+                      
+                      printh("P"..self.id.." CURSOR: DRAWING CIRCLE around ATTACKER (Owner: "..attacker_to_capture.owner_id..", Type: "..attacker_to_capture.type..") at X:"..piece_pos.x..", Y:"..piece_pos.y) -- DEBUG
+                      circ(piece_pos.x, piece_pos.y, radius, 14) -- Pico-8 color 14 is purple
+                    else
+                      printh("P"..self.id.." CURSOR: A targeting piece in 'targeting_attackers' is NOT an attacker (Type: "..(attacker_to_capture.type or "NIL").."). No circle.") -- DEBUG
+                    end
+                  else
+                     printh("P"..self.id.." CURSOR ERR: A piece in targeting_attackers is invalid or has no position.") -- DEBUG
+                  end
+                end
+              else
+                printh("P"..self.id.." CURSOR: Owned overcharged defender has NO targeting attackers.") -- DEBUG
+              end
+            end
+          end
+          if not found_overcharged_defender_for_player then
+            printh("P"..self.id.." CURSOR: No owned overcharged defenders found.") -- DEBUG
+          end
+        else
+          printh("P"..self.id.." CURSOR ERR: 'pieces' table is nil.") -- DEBUG
+        end
+      else
+        if current_player and not current_player:is_in_capture_mode() then
+           -- This log can be very spammy, enable if specifically debugging capture mode toggle
+           -- printh("P"..self.id.." CURSOR: Not in capture mode.") 
+        elseif not current_player then
+            printh("P"..self.id.." CURSOR ERR: current_player is nil.") -- DEBUG
         end
       end
     end
@@ -1458,17 +1523,19 @@ __gfx__
 00000000111111677611111111111111000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __map__
 1213000000000000000000000000111200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1223000000000000000000000000211200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1300000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1300000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-3100000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1300000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1300000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-3100000000000000000000000000003200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1300000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1300000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1300000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1300000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1203000000000000000000000000011200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2223000000000000000000000000212200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0203000000000000000000000000010200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 1213000000000000000000000000111200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 

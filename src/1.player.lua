@@ -12,7 +12,8 @@ function Player:new(id, initial_score, color, ghost_color) -- Added initial_scor
     score = initial_score or 0,
     color = color,
     ghost_color = ghost_color,
-    stash = {} -- Initialize stash as an empty table
+    stash = {}, -- Initialize stash as an empty table
+    capture_mode = false -- Added capture_mode
   }
   -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player's own color
   instance.stash[color] = STASH_SIZE or 6
@@ -38,6 +39,16 @@ end
 -- Method to get player's ghost color
 function Player:get_ghost_color()
   return self.ghost_color
+end
+
+-- Method to check if player is in capture mode
+function Player:is_in_capture_mode()
+  return self.capture_mode
+end
+
+-- Method to toggle capture mode
+function Player:toggle_capture_mode()
+  self.capture_mode = not self.capture_mode
 end
 
 -- Method to add a captured piece to the stash

@@ -25,7 +25,7 @@ function update_controls()
 
     if not current_player_obj then goto next_cursor_ctrl end
 
-    -- Determine Player Status
+    -- Determine Player Status and Forced Action State
     local player_has_empty_stash = true
     if current_player_obj and current_player_obj.stash then
       for _color_id, count in pairs(current_player_obj.stash) do
@@ -66,6 +66,25 @@ function update_controls()
     end
     printh("P"..i.." FLAGS: EMPTY="..(player_has_empty_stash and "T" or "F").." HAS_DEF="..(player_has_successful_defender and "T" or "F").." FORCE_STATE="..forced_action_state) -- DEBUG
 
+    -- Handle player cycling piece/action type if in normal state and CSTATE_MOVE_SELECT
+    if cur.control_state == CSTATE_MOVE_SELECT and btnp(🅾️, i - 1) and forced_action_state == "normal" then
+        local current_orientation = cur.pending_orientation
+        if cur.pending_type == "defender" then
+            cur.pending_type = "attacker"
+        elseif cur.pending_type == "attacker" then
+            cur.pending_type = "capture"
+        elseif cur.pending_type == "capture" then
+            cur.pending_type = "defender"
+        end
+        cur.pending_orientation = current_orientation
+    end
+
+    -- Set player's capture_mode based on the FINAL cur.pending_type for this frame
+    if current_player_obj then
+        current_player_obj.capture_mode = (cur.pending_type == "capture")
+        printh("P"..i.." CAPTURE MODE: "..(current_player_obj.capture_mode and "ON" or "OFF").." PENDING_TYPE: "..cur.pending_type) -- DEBUG
+    end
+
     if cur.control_state == CSTATE_MOVE_SELECT then
       -- Continuous movement with the d-pad.
       if btn(⬅️, i - 1) then cur.x = max(0, cur.x - cursor_speed) end
@@ -73,37 +92,18 @@ function update_controls()
       if btn(⬆️, i - 1) then cur.y = max(0, cur.y - cursor_speed) end
       if btn(⬇️, i - 1) then cur.y = min(cur.y + cursor_speed, 128 - 8) end
 
-      -- Cycle piece/action type (using Button O)
-      if btnp(🅾️, i - 1) and forced_action_state == "normal" then
-        -- Store the current orientation to maintain it when switching types
-        local current_orientation = cur.pending_orientation
-        
-        if cur.pending_type == "defender" then
-          cur.pending_type = "attacker"
-        elseif cur.pending_type == "attacker" then
-          cur.pending_type = "capture"
-        elseif cur.pending_type == "capture" then
-          cur.pending_type = "defender"
-        end
-        
-        -- Keep the same orientation when switching types
-        cur.pending_orientation = current_orientation
-      end
-
-      -- Initiate placement/rotation with Button X.
+      -- Initiate placement/rotation/capture with Button X.
       if btnp(❎, i - 1) then
-        if forced_action_state == "capture_only" or cur.pending_type == "capture" then
+        if cur.pending_type == "capture" then -- If pending type is capture (either forced or selected)
           if attempt_capture(current_player_obj, cur) then
             cur.control_state = CSTATE_COOLDOWN; cur.return_cooldown = 6
             if original_update_game_logic_func then original_update_game_logic_func() end -- Recalculate immediately
           else
             printh("P" .. i .. ": Capture failed.")
           end
-        elseif forced_action_state == "must_place_defender" then
+        else -- pending_type is "defender" or "attacker"
           cur.control_state = CSTATE_ROTATE_PLACE
-          -- pending_type and pending_color are already set
-        else -- Normal state
-          cur.control_state = CSTATE_ROTATE_PLACE
+          -- Orientation and color will be handled in CSTATE_ROTATE_PLACE
           -- No longer resetting orientation when starting placement
         end
       end
@@ -116,13 +116,30 @@ function update_controls()
         add(available_colors, current_player_obj:get_color())
         cur.color_select_idx = 1 -- Ensure it's selected
       else
-        -- Gather available colors in stash
-        for color, count in pairs(current_player_obj.stash) do
-          if count > 0 then add(available_colors, color) end
+        -- Gather available colors in stash (player's own and captured)
+        if current_player_obj and current_player_obj.stash then -- Ensure player and stash exist
+          for color, count in pairs(current_player_obj.stash) do
+            if count > 0 then add(available_colors, color) end
+          end
         end
       end
-      -- If no color, fallback to player's own color
-      if #available_colors == 0 then available_colors = {current_player_obj:get_color()} end
+      
+      -- If no colors were added (e.g., stash is completely empty, which shouldn't happen if forced_action_state isn's capture_only),
+      -- or if in a state where only own color is allowed but not present (edge case).
+      -- Fallback to player's own color if available_colors is still empty.
+      -- This handles the scenario where a player might have 0 of their own color but prisoners.
+      if #available_colors == 0 and current_player_obj and current_player_obj:has_piece_in_stash(current_player_obj:get_color()) then
+         add(available_colors, current_player_obj:get_color())
+      elseif #available_colors == 0 then
+        -- If truly no pieces are placeable (e.g. empty stash and not forced to place defender)
+        -- this situation should ideally be handled by `forced_action_state` pushing to "capture_only"
+        -- or preventing entry into CSTATE_ROTATE_PLACE.
+        -- For safety, if we reach here with no available colors, revert to move/select.
+        printh("P"..i.." WARN: No available colors in ROTATE_PLACE, reverting state.")
+        cur.control_state = CSTATE_MOVE_SELECT
+        goto next_cursor_ctrl -- Skip further processing for this cursor this frame
+      end
+
       -- Clamp color_select_idx
       if cur.color_select_idx > #available_colors then cur.color_select_idx = 1 end
       if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
@@ -152,7 +169,15 @@ function update_controls()
       if forced_action_state == "must_place_defender" then
         cur.pending_color = current_player_obj:get_color()
       else
-        cur.pending_color = available_colors[cur.color_select_idx] or current_player_obj:get_color()
+        -- Ensure available_colors has entries before trying to access
+        if #available_colors > 0 then
+            cur.pending_color = available_colors[cur.color_select_idx] or current_player_obj:get_ghost_color() -- Fallback to ghost color
+        else
+            -- This case should ideally be prevented by earlier checks.
+            -- If somehow reached, use player's ghost color as a safe default.
+            cur.pending_color = current_player_obj:get_ghost_color() 
+            printh("P"..i.." WARN: Setting pending_color to ghost_color due to no available_colors.")
+        end
       end
 
       -- Confirm placement with Button X.

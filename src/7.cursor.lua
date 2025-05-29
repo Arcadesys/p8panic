@@ -35,11 +35,14 @@ function create_cursor(player_id,initial_x,initial_y)
     color_select_idx=default_cursor_props.color_select_idx,
     return_cooldown=default_cursor_props.return_cooldown,
     draw=function(self)
+      printh("P"..self.id.." CURSOR: DRAW FUNCTION CALLED") -- <<< ADD THIS LINE
+
       local cursor_color
+      local current_player
       if player_manager and player_manager.get_player then
-        local p=player_manager.get_player(self.id)
-        if p and p.get_color then
-          cursor_color=p:get_color()
+        current_player = player_manager.get_player(self.id)
+        if current_player and current_player.get_color then
+          cursor_color=current_player:get_color()
         end
       end
       if not cursor_color then
@@ -64,6 +67,56 @@ function create_cursor(player_id,initial_x,initial_y)
         local ghost_piece=create_piece(ghost_piece_params)
         if ghost_piece and ghost_piece.draw then
           ghost_piece:draw()
+        end
+      end
+
+      -- Draw purple circles around capturable ships if in capture mode
+      if current_player and current_player:is_in_capture_mode() then
+        printh("P"..self.id.." CURSOR: In Capture Mode. Searching for capturable pieces...") -- DEBUG
+        if pieces then
+          local found_overcharged_defender_for_player = false
+          for _, my_piece in ipairs(pieces) do
+            -- Condition 1: Is it MY piece, is it a DEFENDER, and is it OVERCHARGED?
+            if my_piece.owner_id == self.id and my_piece.type == "defender" and my_piece.state == "overcharged" then
+              found_overcharged_defender_for_player = true
+              printh("P"..self.id.." CURSOR: Found OWNED OVERCHARGED DEFENDER (Owner: "..my_piece.owner_id..", Type: "..my_piece.type..", State: "..my_piece.state..")") -- DEBUG
+              
+              if my_piece.targeting_attackers and #my_piece.targeting_attackers > 0 then
+                printh("P"..self.id.." CURSOR: Overcharged defender has "..#my_piece.targeting_attackers.." targeting attacker(s).") -- DEBUG
+                
+                for _, attacker_to_capture in ipairs(my_piece.targeting_attackers) do
+                  if attacker_to_capture and attacker_to_capture.position then
+                    -- Condition 2: Is the targeting piece an ATTACKER? (Owner doesn't matter for highlighting)
+                    if attacker_to_capture.type == "attacker" then -- Removed owner check attacker_to_capture.owner_id ~= self.id
+                      local piece_pos = attacker_to_capture.position
+                      local radius = 5 -- Attackers are triangles, 5 should be a decent radius
+                      
+                      printh("P"..self.id.." CURSOR: DRAWING CIRCLE around ATTACKER (Owner: "..attacker_to_capture.owner_id..", Type: "..attacker_to_capture.type..") at X:"..piece_pos.x..", Y:"..piece_pos.y) -- DEBUG
+                      circ(piece_pos.x, piece_pos.y, radius, 14) -- Pico-8 color 14 is purple
+                    else
+                      printh("P"..self.id.." CURSOR: A targeting piece in 'targeting_attackers' is NOT an attacker (Type: "..(attacker_to_capture.type or "NIL").."). No circle.") -- DEBUG
+                    end
+                  else
+                     printh("P"..self.id.." CURSOR ERR: A piece in targeting_attackers is invalid or has no position.") -- DEBUG
+                  end
+                end
+              else
+                printh("P"..self.id.." CURSOR: Owned overcharged defender has NO targeting attackers.") -- DEBUG
+              end
+            end
+          end
+          if not found_overcharged_defender_for_player then
+            printh("P"..self.id.." CURSOR: No owned overcharged defenders found.") -- DEBUG
+          end
+        else
+          printh("P"..self.id.." CURSOR ERR: 'pieces' table is nil.") -- DEBUG
+        end
+      else
+        if current_player and not current_player:is_in_capture_mode() then
+           -- This log can be very spammy, enable if specifically debugging capture mode toggle
+           -- printh("P"..self.id.." CURSOR: Not in capture mode.") 
+        elseif not current_player then
+            printh("P"..self.id.." CURSOR ERR: current_player is nil.") -- DEBUG
         end
       end
     end

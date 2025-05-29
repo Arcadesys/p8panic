@@ -10,6 +10,14 @@
 -- local sqrt, abs = sqrt, abs
 
 function legal_placement(piece_params)
+  -- UI overlay forbidden zones (16x16 px in each corner)
+  local ui_zones = {
+    {x1=0, y1=0, x2=15, y2=15}, -- top-left
+    {x1=112, y1=0, x2=127, y2=15}, -- top-right
+    {x1=0, y1=112, x2=15, y2=127}, -- bottom-left
+    {x1=112, y1=112, x2=127, y2=127} -- bottom-right
+  }
+
   local bw, bh = 128, 128
   local temp_piece_obj = create_piece(piece_params)
   if not temp_piece_obj then return false end
@@ -48,6 +56,12 @@ function legal_placement(piece_params)
   if not corners or #corners == 0 then return false end -- No vertices to check
   for c in all(corners) do
     if c.x < 0 or c.x > bw or c.y < 0 or c.y > bh then return false end
+    -- Block placement if any vertex is inside a UI overlay zone
+    for z in all(ui_zones) do
+      if c.x >= z.x1 and c.x <= z.x2 and c.y >= z.y1 and c.y <= z.y2 then
+        return false
+      end
+    end
   end
 
   for _, ep_obj in ipairs(pieces) do
