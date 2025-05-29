@@ -1,8 +1,6 @@
 -- src/2.scoring.lua
 -- Scoring Module
---#globals pieces player_manager ray_segment_intersect LASER_LEN _G
---#globals cos sin add ipairs del deli
---#globals player_manager ray_segment_intersect LASER_LEN
+--#globals pieces player_manager ray_segment_intersect LASER_LEN cos sin add ipairs del deli
 
 function reset_player_scores()
   if player_manager and player_manager.current_players then
@@ -19,6 +17,7 @@ function reset_piece_states_for_scoring()
     if p_obj then
       p_obj.hits = 0
       p_obj.targeting_attackers = {}
+      p_obj.dbg_target_count = nil -- Ensure debug display counter is cleared
       -- p_obj.state = nil -- or some default state if applicable
     end
   end
@@ -111,6 +110,11 @@ function score_pieces()
   for _, p_obj in ipairs(pieces) do -- Use global 'pieces' directly
     -- Pass global 'player_manager' directly
     _score_defender(p_obj, player_manager)
+    
+    -- Clear any debug target count that might be set
+    if p_obj.type == "defender" then
+      p_obj.dbg_target_count = nil
+    end
   end
 
   local remaining_pieces = {}
@@ -124,5 +128,4 @@ function score_pieces()
   pieces = remaining_pieces
 end
 
--- Renamed from score_attackers to score_pieces to reflect broader scope
-score_pieces = score_pieces
+-- No need for any additional export - in PICO-8, functions are global by default

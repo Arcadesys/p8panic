@@ -1,7 +1,7 @@
 local default_cursor_props={
   control_state=0,
   pending_type="defender",
-  pending_orientation=0,
+  pending_orientation=0.25, -- Start with a useful default angle
   color_select_idx=1,
   return_cooldown=0,
 }

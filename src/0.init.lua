@@ -160,7 +160,9 @@ current_game_state = GAME_STATE_MENU -- Start in the menu
 -------------------------------------------
 -- Game Logic & Main Loop Integration    --
 -------------------------------------------
+-- Define the internal game logic update function
 function internal_update_game_logic()
+  -- Reset defender states before scoring
   for _, p_item in ipairs(pieces) do
     if p_item.type == "defender" then
       p_item.hits = 0
@@ -169,7 +171,13 @@ function internal_update_game_logic()
       p_item.captured_flag = false -- Reset captured flag
     end
   end
-  if score_pieces then score_pieces() else printh("Error: score_pieces is nil in internal_update_game_logic!") end
+  
+  -- Call the scoring function from 2.scoring.lua
+  if score_pieces then 
+    score_pieces() 
+  else 
+    printh("Error: score_pieces is nil in internal_update_game_logic!")
+  end
 end
 
 function go_to_state(new_state)
@@ -202,13 +210,24 @@ function _init()
   end
   
   -- Assign function pointers here, after all tabs are loaded
-  original_update_game_logic_func = internal_update_game_logic
+  if internal_update_game_logic then
+    original_update_game_logic_func = internal_update_game_logic
+  else
+    printh("ERROR: internal_update_game_logic is NIL in _init!", true)
+    -- Define a fallback internal update function if needed
+    original_update_game_logic_func = function() end
+  end
+  
   if update_controls then
     original_update_controls_func = update_controls
   else
     printh("ERROR: update_controls is NIL in _init!", true)
+    -- Define a fallback controls function if needed
+    original_update_controls_func = function() end
   end
-  if not score_pieces then
+  
+  -- Check if score_pieces is available (no need to assign it)
+  if not _ENV.score_pieces then
      printh("ERROR: score_pieces is NIL in _init!", true)
   end
 
@@ -263,8 +282,23 @@ function update_menu_state()
 end
 
 function update_playing_state()
-  if original_update_controls_func then original_update_controls_func() else printh("Error: original_update_controls_func is nil!") end
-  if original_update_game_logic_func then original_update_game_logic_func() else printh("Error: original_update_game_logic_func is nil!") end
+  -- Update game controls
+  if original_update_controls_func then 
+    original_update_controls_func() 
+  else 
+    printh("Error: original_update_controls_func is nil in update_playing_state!") 
+  end
+  
+  -- Update game logic - carefully wrapped to avoid errors
+  if original_update_game_logic_func then
+    if type(original_update_game_logic_func) == "function" then
+      original_update_game_logic_func()
+    else
+      printh("Error: original_update_game_logic_func is not a function in update_playing_state!")
+    end
+  else 
+    printh("Error: original_update_game_logic_func is nil in update_playing_state!") 
+  end
   
   -- Update game timer (decrease by 1/30th of a second each frame)
   GAME_TIMER = max(0, GAME_TIMER - (1/30))
@@ -281,16 +315,7 @@ function _update()
   if current_game_state == GAME_STATE_MENU then
     update_menu_state()
   elseif current_game_state == GAME_STATE_PLAYING then
-    if original_update_controls_func then 
-      original_update_controls_func() 
-    else 
-      printh("Error: original_update_controls_func is nil in _update!") 
-    end
-    if original_update_game_logic_func then 
-      original_update_game_logic_func() 
-    else 
-      printh("Error: original_update_game_logic_func is nil in _update!") 
-    end
+    update_playing_state() -- Call the playing state update function
   end
 end
 
@@ -334,9 +359,11 @@ function draw_menu_state()
 end
 
 function draw_playing_state_elements()
-  -- Draw game timer at the top center - compact version
-  local timer_int = flr(GAME_TIMER)
-  local timer_str = timer_int .. "s"
+  -- Draw game timer at the top center in MM:SS format
+  local total_secs = flr(GAME_TIMER)
+  local mins = flr(total_secs / 60)
+  local secs = total_secs % 60
+  local timer_str = mins .. ":" .. (secs < 10 and "0" or "") .. secs
   local timer_x = 62 - #timer_str * 2
   local timer_color = 7 -- Default white
   if GAME_TIMER < 30 then timer_color = 8 end -- Red for low time
@@ -346,12 +373,8 @@ function draw_playing_state_elements()
   for _, piece_obj in ipairs(pieces) do
     if piece_obj and piece_obj.draw then
       piece_obj:draw()
-      -- debug: show number of attackers targeting this defender on-screen
-      if piece_obj.type == "defender" then
-        local count_to_display = piece_obj.dbg_target_count or 0 -- Use dbg_target_count, default to 0 if nil
-        -- print count above defender
-        print(count_to_display, piece_obj.position.x + 4, piece_obj.position.y - 8, 7)
-      end
+      -- Debug display of attacker count removed
+      -- No longer showing numbers above defenders
     end
   end
   

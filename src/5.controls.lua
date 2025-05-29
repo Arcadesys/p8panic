@@ -25,6 +25,9 @@ function update_controls()
 
       -- Cycle piece/action type (using Button O)
       if btnp(🅾️, i - 1) then
+        -- Store the current orientation to maintain it when switching types
+        local current_orientation = cur.pending_orientation
+        
         if cur.pending_type == "defender" then
           cur.pending_type = "attacker"
         elseif cur.pending_type == "attacker" then
@@ -32,6 +35,9 @@ function update_controls()
         elseif cur.pending_type == "capture" then
           cur.pending_type = "defender"
         end
+        
+        -- Keep the same orientation when switching types
+        cur.pending_orientation = current_orientation
       end
 
       -- Initiate placement/rotation with Button X.
@@ -45,7 +51,7 @@ function update_controls()
           end
         else
           cur.control_state = CSTATE_ROTATE_PLACE
-          cur.pending_orientation = 0 -- Reset orientation when starting placement
+          -- No longer resetting orientation when starting placement
         end
       end
 
@@ -115,7 +121,7 @@ function update_controls()
         cur.x = cur.spawn_x
         cur.y = cur.spawn_y
         cur.control_state = CSTATE_MOVE_SELECT
-        cur.pending_orientation = 0
+        -- Keeping the current orientation instead of resetting it
         cur.pending_type = "defender"
         cur.pending_color = (current_player_obj and current_player_obj:get_ghost_color()) or 7
       end
