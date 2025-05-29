@@ -202,7 +202,7 @@ function Defender:new(o)
   o = o or {}
   o.type = "defender"
   o.hits = 0
-  o.state = "neutral" -- "neutral", "unsuccessful", "overcharged"
+  o.state = "successful" -- "neutral", "unsuccessful", "overcharged"
   o.targeting_attackers = {}
   return Piece.new(self, o) -- Call base constructor
 end
