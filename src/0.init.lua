@@ -187,8 +187,38 @@ end
 GAME_STATE_MENU = 0
 GAME_STATE_PLAYING = 1
 GAME_STATE_GAMEOVER = 2
+GAME_STATE_TUTORIAL = 3 -- New game state
 
 current_game_state = GAME_STATE_MENU
+
+tutorial_page_current = 1
+tutorial_pages_data = {}
+
+function init_tutorial_data()
+  tutorial_pages_data = {
+    { -- Page 1
+      lines = {"TUTORIAL: PAGE 1", "WELCOME TO P8PANIC!", "PLACE DEFENDERS (SQUARES)", "AND ATTACKERS (TRIANGLES)."},
+      pieces_to_draw = {
+        {type="defender", position={x=30,y=80}, orientation=0, color=12, is_ghost=true},
+        {type="attacker", position={x=98,y=80}, orientation=0.25, color=8, is_ghost=true}
+      }
+    },
+    { -- Page 2
+      lines = {"TUTORIAL: PAGE 2", "ATTACKERS SHOOT LASERS.", "DEFENDERS SCORE IF NOT HIT,", "OR HIT BY ONLY ONE LASER."},
+      pieces_to_draw = {
+        {type="attacker", position={x=64,y=60}, orientation=0, color=10, is_ghost=true},
+        {type="defender", position={x=64,y=90}, orientation=0, color=12, is_ghost=true}
+      }
+    },
+    { -- Page 3
+      lines = {"TUTORIAL: PAGE 3", "OVERCHARGED DEFENDERS", "(HIT BY 3+ LASERS)", "CAN CAPTURE ENEMY ATTACKERS."},
+      pieces_to_draw = {
+         {type="defender", position={x=64,y=70}, orientation=0, color=11, is_ghost=true, state="overcharged"}, -- Assuming state influences appearance or for context
+         {type="attacker", position={x=64,y=40}, orientation=0.5, color=9, is_ghost=true}
+      }
+    }
+  }
+end
 
 function internal_update_game_logic()
   for _, p_item in ipairs(pieces) do
@@ -231,6 +261,9 @@ function go_to_state(new_state)
       end
     end
     if original_update_game_logic_func then original_update_game_logic_func() end
+  elseif new_state == GAME_STATE_TUTORIAL then
+    init_tutorial_data() -- Initialize tutorial content
+    tutorial_page_current = 1
   end
   current_game_state = new_state
 end
@@ -267,6 +300,8 @@ function _init()
   if not player_manager.get_player_count then
      printh("ERROR: player_manager.get_player_count is NIL in _init()", true)
   end
+  init_starfield() -- Initialize stars once
+  init_tutorial_data() -- Initialize tutorial data once at start
 end
 
 
@@ -277,7 +312,7 @@ function update_menu_state()
   if btnp(⬆️) then
     menu_selection = max(1, menu_selection - 1)
   elseif btnp(⬇️) then
-    menu_selection = min(3, menu_selection + 1)
+    menu_selection = min(4, menu_selection + 1) -- Increased to 4 for "How to Play"
   end
 
   if menu_selection == 1 then
@@ -298,10 +333,16 @@ function update_menu_state()
     elseif btnp(➡️) then
       ROUND_TIME = min(ROUND_TIME_MAX, ROUND_TIME + 30)
     end
+  elseif menu_selection == 4 then -- How to Play
+    -- No options to change for "How to Play" with L/R
   end
 
   if btnp(❎) or btnp(🅾️) then
-    go_to_state(GAME_STATE_PLAYING)
+    if menu_selection == 4 then
+      go_to_state(GAME_STATE_TUTORIAL)
+    else
+      go_to_state(GAME_STATE_PLAYING)
+    end
   end
 end
 
@@ -347,6 +388,20 @@ function _update()
     update_playing_state()
   elseif current_game_state == GAME_STATE_GAMEOVER then
     update_gameover_state()
+  elseif current_game_state == GAME_STATE_TUTORIAL then -- New state update
+    update_tutorial_state()
+  end
+  update_starfield() -- Update starfield regardless of game state
+end
+
+function update_tutorial_state()
+  if btnp(❎) then
+    tutorial_page_current += 1
+    if tutorial_page_current > #tutorial_pages_data then
+      tutorial_page_current = 1 -- Loop back to first page
+    end
+  elseif btnp(🅾️) then
+    go_to_state(GAME_STATE_MENU)
   end
 end
 
@@ -361,21 +416,57 @@ function update_gameover_state()
 end
 
 
+stars = {}
 
+function init_starfield()
+  stars = {}
+  for i = 1, 20 do
+    add(stars, {
+      x = rnd(128),
+      y = rnd(128),
+      speed = rnd(0.01) + 0.1,
+      size = flr(rnd(2)) + 1,
+      color = flr(rnd(3)) + 5
+    })
+  end
+end
+
+function update_starfield()
+  for star in all(stars) do
+    star.y += star.speed
+    if star.y > 128 then
+      star.y = -star.size
+      star.x = rnd(128)
+    end
+  end
+end
+
+function draw_starfield()
+  for star in all(stars) do
+    if star.size == 1 then
+      pset(star.x, star.y, star.color)
+    else
+      circfill(star.x, star.y, star.size - 1, star.color)
+    end
+  end
+end
 
 function draw_menu_state()
-  print("P8PANIC", 50, 40, 7)
-  print("PRESS X OR O", 40, 54, 8)
-  print("TO START", 50, 62, 8)
+  print("P8PANIC", 50, 30, 7) -- Adjusted y for new option
+  print("PRESS X OR O", 40, 44, 8)
+  print("TO START", 50, 52, 8)
   if not menu_selection then menu_selection = 1 end
   local stash_color = (menu_selection == 1) and 7 or 11
   local player_color = (menu_selection == 2) and 7 or 11
   local timer_color = (menu_selection == 3) and 7 or 11
-  print((menu_selection == 1 and ">" or " ").." STASH SIZE: "..STASH_SIZE, 28, 80, stash_color)
-  print((menu_selection == 2 and ">" or " ").." PLAYERS: "..PLAYER_COUNT, 28, 90, player_color)
+  local tutorial_color = (menu_selection == 4) and 7 or 11 -- Color for "How to Play"
+
+  print((menu_selection == 1 and ">" or " ").." STASH SIZE: "..STASH_SIZE, 28, 70, stash_color) -- Adjusted y
+  print((menu_selection == 2 and ">" or " ").." PLAYERS: "..PLAYER_COUNT, 28, 80, player_color) -- Adjusted y
   local minstr = flr(ROUND_TIME/60)
   local secstr = (ROUND_TIME%60 < 10 and "0" or "")..(ROUND_TIME%60)
-  print((menu_selection == 3 and ">" or " ").." ROUND TIME: "..minstr..":"..secstr, 28, 100, timer_color)
+  print((menu_selection == 3 and ">" or " ").." ROUND TIME: "..minstr..":"..secstr, 28, 90, timer_color) -- Adjusted y
+  print((menu_selection == 4 and ">" or " ").." HOW TO PLAY", 28, 100, tutorial_color) -- New menu item
 end
 
 function draw_playing_state_elements()
@@ -458,8 +549,47 @@ function draw_gameover_state()
   end
 end
 
+function draw_tutorial_state()
+  cls(0)
+  draw_starfield()
+  map(0, 0, 0, 0, 16, 16,0) -- Optional: draw game map background
+
+  if tutorial_pages_data[tutorial_page_current] then
+    local page_data = tutorial_pages_data[tutorial_page_current]
+
+    -- Draw pieces for the current tutorial page
+    if page_data.pieces_to_draw and create_piece then
+      for _, piece_params in ipairs(page_data.pieces_to_draw) do
+        -- Ensure a color is set, defaulting if necessary
+        local params_with_defaults = {}
+        for k,v in pairs(piece_params) do params_with_defaults[k]=v end
+        params_with_defaults.color = piece_params.color or 7
+        params_with_defaults.is_ghost = piece_params.is_ghost -- Keep ghost status if defined
+
+        local temp_piece = create_piece(params_with_defaults)
+        if temp_piece and temp_piece.draw then
+          temp_piece:draw()
+        end
+      end
+    end
+
+    -- Draw text for the current tutorial page
+    if page_data.lines then
+      local start_y = 20 -- Starting y position for text
+      for i, line_text in ipairs(page_data.lines) do
+        print(line_text, 64 - (#line_text * 2), start_y + (i-1)*8, 7)
+      end
+    end
+  end
+
+  -- Navigation hints
+  print("❎:NEXT PAGE", 4, 118, 7)
+  print("🅾️:MENU", 88, 118, 7)
+end
+
 function _draw()
   cls(0)
+  draw_starfield() -- Assuming draw_starfield is defined elsewhere
   map(0, 0, 0, 0, 16, 16,0)
   if current_game_state == GAME_STATE_MENU then
     draw_menu_state()
@@ -467,5 +597,7 @@ function _draw()
     draw_playing_state_elements()
   elseif current_game_state == GAME_STATE_GAMEOVER then
     draw_gameover_state()
+  elseif current_game_state == GAME_STATE_TUTORIAL then -- New state draw
+    draw_tutorial_state()
   end
 end
