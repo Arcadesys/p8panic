@@ -4,21 +4,18 @@ __lua__
 --init
 function finish_game_menuitem()
   if current_game_state == GAME_STATE_PLAYING then
-    -- Final scoring and move to gameover state
     if score_pieces then score_pieces() end
     current_game_state = GAME_STATE_GAMEOVER
     GAME_TIMER = 0
   end
 end
 
-gameover_timer = 2 -- 2 seconds pause before showing scores
+gameover_timer = 2
 
--- Pre-game countdown and panic sequence
-pre_game_state = nil -- nil, 'countdown', 'panic', 'done'
+pre_game_state = nil
 pre_game_start_t = 0
 pre_game_sequence = {"3...", "2...", "1..."}
 
--- Helper: draw a word/phrase from a sequence centered, one per second
 function draw_centered_sequence(seq, start_t, color)
   local elapsed = time() - start_t
   local idx = flr(elapsed) + 1
@@ -30,41 +27,37 @@ function draw_centered_sequence(seq, start_t, color)
   return true
 end
 
--- Helper: draw shaky red text in the center
 function draw_shaky_centered_text(s, color)
   local ox = rnd(3) - 1.5
   local oy = rnd(3) - 1.5
   print(s, 64 - (#s * 2) + ox, 64 + oy, color or 8)
 end
--- Call this to start the pre-game sequence before controls unlock
 function start_pre_game_sequence()
   pre_game_state = 'countdown'
   pre_game_start_t = time()
 end
 
--- New function to update pre-game sequence state
 function update_pre_game_sequence()
   if pre_game_state == 'countdown' then
     local elapsed = time() - pre_game_start_t
-    local countdown_duration = #pre_game_sequence -- Each item is 1 second
+    local countdown_duration = #pre_game_sequence
     if elapsed >= countdown_duration then
       pre_game_state = 'panic'
-      pre_game_start_t = time() -- Reset timer for panic phase
+      pre_game_start_t = time()
     end
-    return true -- Sequence is active
+    return true
   elseif pre_game_state == 'panic' then
-    if (time() - pre_game_start_t) >= 1 then -- Panic duration is 1 second
+    if (time() - pre_game_start_t) >= 1 then
       pre_game_state = 'done'
-      return false -- Sequence just finished
+      return false
     end
-    return true -- Sequence is active
+    return true
   elseif pre_game_state == 'done' or pre_game_state == nil then
-    return false -- Sequence is not active or finished
+    return false
   end
-  return false -- Default
+  return false
 end
 
--- New function to draw pre-game sequence text
 function draw_pre_game_text()
   if pre_game_state == 'countdown' then
     draw_centered_sequence(pre_game_sequence, pre_game_start_t, 7)
@@ -73,43 +66,25 @@ function draw_pre_game_text()
   end
 end
 
--- Register the menuitem in _init
 ---@diagnostic disable: undefined-global
--- p8panic - A game of tactical geometry
 
-player_manager = {} -- Initialize player_manager globally here
-STASH_SIZE = 6 -- Default stash size, configurable in menu (min 3, max 10)
-PLAYER_COUNT = 2 -- Default number of players, configurable in menu (min 2, max 4)
-create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua now)
-pieces = {} -- Initialize pieces globally here
-LASER_LEN = 60 -- Initialize LASER_LEN globally here
--- Player count is now configurable via PLAYER_COUNT in menu
-cursors = {} -- Initialize cursors globally here
-CAPTURE_RADIUS_SQUARED = 64 -- Initialize CAPTURE_RADIUS_SQUARED globally here
+player_manager = {}
+STASH_SIZE = 6
+PLAYER_COUNT = 2
+create_piece = nil
+pieces = {}
+LASER_LEN = 60
+cursors = {}
+CAPTURE_RADIUS_SQUARED = 64
 
--- Declare these here, they will be assigned in _init()
 original_update_game_logic_func = nil
 original_update_controls_func = nil
 
--------------------------------------------
--- Helpers & Global Constants/Variables --
--------------------------------------------
---#globals player_manager create_piece pieces LASER_LEN PLAYER_COUNT cursors CAPTURE_RADIUS_SQUARED
---#globals ray_segment_intersect attempt_capture -- Core helpers defined in this file
---#globals update_controls score_pieces place_piece legal_placement create_cursor -- Functions from modules
---#globals internal_update_game_logic original_update_game_logic_func original_update_controls_func
---#globals GAME_STATE_MENU GAME_STATE_PLAYING current_game_state
---#globals GAME_TIMER GAME_TIMER_MAX
-
-
--- Game timer configuration
-ROUND_TIME_MIN = 120    -- 2 minutes
-ROUND_TIME_MAX = 600    -- 10 minutes
-ROUND_TIME = 180        -- Default round time (seconds)
+ROUND_TIME_MIN = 120
+ROUND_TIME_MAX = 600
+ROUND_TIME = 180
 GAME_TIMER_MAX = ROUND_TIME
 GAME_TIMER = GAME_TIMER_MAX
-
--- CAPTURE_RADIUS_SQUARED = 64 -- (8*8) For capture proximity check -- Already defined above
 
 function point_in_polygon(px, py, vertices)
   local inside = false
@@ -125,19 +100,10 @@ function point_in_polygon(px, py, vertices)
   return inside
 end
 
--- Global game state variables
--- pieces = {} -- Already defined above
--- Default number of players is defined as PLAYER_COUNT = 2 above
--- LASER_LEN = 60          -- Maximum laser beam length -- Already defined above
-
--- Cached math functions
 local cos, sin = cos, sin
 local max, min = max, min
 local sqrt, abs = sqrt, abs
 
-------------------------------------------
--- Core Helper Functions (defined before includes that might use them)
-------------------------------------------
 function ray_segment_intersect(ray_ox, ray_oy, ray_dx, ray_dy,
                                seg_x1, seg_y1, seg_x2, seg_y2)
   local s_dx = seg_x2 - seg_x1
@@ -154,16 +120,14 @@ function ray_segment_intersect(ray_ox, ray_oy, ray_dx, ray_dy,
   return nil, nil, nil
 end
 
--- Moved attempt_capture here, before includes that use it (e.g., 3.controls.lua)
 function attempt_capture(player_obj, cursor)
   local player_id = player_obj.id
   for _, piece_obj in ipairs(pieces) do
-    -- Check for both overcharged defenders and attackers owned by the player
     if piece_obj.owner_id == player_id and piece_obj.state == "overcharged" then
       if piece_obj.targeting_attackers then
-        for attacker_idx = #piece_obj.targeting_attackers, 1, -1 do -- Iterate backwards for safe removal
+        for attacker_idx = #piece_obj.targeting_attackers, 1, -1 do
           local attacker_to_capture = piece_obj.targeting_attackers[attacker_idx]
-          if attacker_to_capture then -- Ensure attacker still exists
+          if attacker_to_capture then
             local dist_x = (cursor.x + 4) - attacker_to_capture.position.x
             local dist_y = (cursor.y + 4) - attacker_to_capture.position.y
             
@@ -171,7 +135,7 @@ function attempt_capture(player_obj, cursor)
               local captured_color = attacker_to_capture:get_color()
               player_obj:add_captured_piece(captured_color)
               
-              if del(pieces, attacker_to_capture) then -- Remove from global pieces
+              if del(pieces, attacker_to_capture) then
                 printh("P" .. player_id .. " captured attacker (color: " .. captured_color .. ")")
                 deli(piece_obj.targeting_attackers, attacker_idx) 
                 return true 
@@ -185,23 +149,15 @@ function attempt_capture(player_obj, cursor)
   return false
 end
 
--- All modules are loaded via Pico-8 tabs; remove #include directives
-
--------------------------------------------
--- Multi-Cursor Support (one per player) --
--------------------------------------------
--- cursors table is initialized at the top
-
--- Initialize cursors for N players; they spawn in different screen corners.
 function init_cursors(num_players)
   local all_possible_spawn_points = {
-    {x = 18, y = 18},                -- P1: just outside top-left UI
-    {x = 128 - 18 - 1, y = 18},      -- P2: just outside top-right UI
-    {x = 18, y = 128 - 18 - 1},      -- P3: just outside bottom-left UI
-    {x = 128 - 18 - 1, y = 128 - 18 - 1} -- P4: just outside bottom-right UI
+    {x = 18, y = 18},
+    {x = 128 - 18 - 1, y = 18},
+    {x = 18, y = 128 - 18 - 1},
+    {x = 128 - 18 - 1, y = 128 - 18 - 1}
   }
 
-  cursors = {} -- Clear existing cursors before re-initializing
+  cursors = {}
 
   for i = 1, num_players do
     local sp
@@ -209,67 +165,44 @@ function init_cursors(num_players)
       sp = all_possible_spawn_points[i]
     else
       printh("Warning: No spawn point defined for P" .. i .. ". Defaulting.")
-      sp = {x = 4 + (i-1)*10, y = 4} -- Simple fallback
+      sp = {x = 4 + (i-1)*10, y = 4}
     end
 
-    -- Call create_cursor from 7.cursor.lua to create the cursor object
-    -- This object will have the correct draw method.
     if create_cursor then
       cursors[i] = create_cursor(i, sp.x, sp.y)
-      -- Initialize other properties if create_cursor doesn't set them all,
-      -- though ideally create_cursor should handle all necessary defaults.
-      -- For example, if create_cursor doesn't set spawn_x/spawn_y:
-      -- if cursors[i] then
-      --   cursors[i].spawn_x = sp.x
-      --   cursors[i].spawn_y = sp.y
-      -- end
     else
       printh("ERROR: create_cursor function is not defined! Cannot initialize cursors properly.")
-      -- Fallback to basic table if create_cursor is missing (will lack the advanced draw method)
       cursors[i] = {
         id = i,
         x = sp.x, y = sp.y,
         spawn_x = sp.x, spawn_y = sp.y,
         control_state = 0,
         pending_type = "defender",
-        pending_color = 7, -- Simplified fallback
+        pending_color = 7,
         pending_orientation = 0,
         return_cooldown = 0,
         color_select_idx = 1,
-        draw = function() printh("Fallback cursor draw for P"..i) end -- Basic fallback draw
+        draw = function() printh("Fallback cursor draw for P"..i) end
       }
     end
   end
 end
 
--- Game States
-
 GAME_STATE_MENU = 0
 GAME_STATE_PLAYING = 1
 GAME_STATE_GAMEOVER = 2
 
-current_game_state = GAME_STATE_MENU -- Start in the menu
+current_game_state = GAME_STATE_MENU
 
--- Forward declare for state-specific update/draw functions
--- local original_update_game_logic_func -- Now defined after includes
--- local original_update_controls_func -- Now defined after includes
-
--------------------------------------------
--- Game Logic & Main Loop Integration    --
--------------------------------------------
--- Define the internal game logic update function
 function internal_update_game_logic()
-  -- Reset defender states before scoring
   for _, p_item in ipairs(pieces) do
     if p_item.type == "defender" then
       p_item.hits = 0
       p_item.targeting_attackers = {}
-      -- p_item.state = "neutral" -- REMOVED: State will persist or be set by creation/scoring
-      p_item.captured_flag = false -- Reset captured flag
+      p_item.captured_flag = false
     end
   end
   
-  -- Call the scoring function from 2.scoring.lua
   if score_pieces then 
     score_pieces() 
   else 
@@ -280,27 +213,25 @@ end
 
 function go_to_state(new_state)
   if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
-    local current_game_stash_size = STASH_SIZE -- Capture STASH_SIZE once for this game start
-    printh("GO_TO_STATE: CAPTURED STASH_SIZE="..current_game_stash_size) -- DEBUG
+    local current_game_stash_size = STASH_SIZE
+    printh("GO_TO_STATE: CAPTURED STASH_SIZE="..current_game_stash_size)
 
-    pieces = {} -- Clear existing pieces
+    pieces = {}
     
-    -- Initialize players based on menu selection
     player_manager.init_players(PLAYER_COUNT)
     
-    init_cursors(player_manager.get_player_count()) -- Cursors are initialized on game start
-    start_pre_game_sequence() -- Start the pre-game countdown
+    init_cursors(player_manager.get_player_count())
+    start_pre_game_sequence()
     GAME_TIMER_MAX = ROUND_TIME
-    GAME_TIMER = GAME_TIMER_MAX -- Reset game timer
+    GAME_TIMER = GAME_TIMER_MAX
     
     for i=1, player_manager.get_player_count() do
       local p = player_manager.get_player(i)
       if p then 
         p.score = 0
         p.stash = {} 
-        -- Use the locally captured stash size
         p.stash[p:get_color()] = current_game_stash_size 
-        printh("P"..i.." STASH INIT: C="..p:get_color().." SZ="..current_game_stash_size.." CT="..p.stash[p:get_color()]) -- DEBUG
+        printh("P"..i.." STASH INIT: C="..p:get_color().." SZ="..current_game_stash_size.." CT="..p.stash[p:get_color()])
       end
     end
     if original_update_game_logic_func then original_update_game_logic_func() end
@@ -310,18 +241,15 @@ end
 
 
 function _init()
-  -- Register Pico-8 menuitem for finishing the game
   menuitem(1, "Finish Game", finish_game_menuitem)
   if not player_manager then
-    printh("ERROR: player_manager is NIL in _init()", true) -- Debug print
+    printh("ERROR: player_manager is NIL in _init()", true)
   end
   
-  -- Assign function pointers here, after all tabs are loaded
   if internal_update_game_logic then
     original_update_game_logic_func = internal_update_game_logic
   else
     printh("ERROR: internal_update_game_logic is NIL in _init!", true)
-    -- Define a fallback internal update function if needed
     original_update_game_logic_func = function() end
   end
   
@@ -329,57 +257,46 @@ function _init()
     original_update_controls_func = update_controls
   else
     printh("ERROR: update_controls is NIL in _init!", true)
-    -- Define a fallback controls function if needed
     original_update_controls_func = function() end
   end
   
-  -- Check if score_pieces is available (no need to assign it)
   if not _ENV.score_pieces then
      printh("ERROR: score_pieces is NIL in _init!", true)
   end
 
-  -- Initialize menu variables
-  menu_selection = 1 -- Default to first menu option (stash size)
+  menu_selection = 1
   
-  -- Start in the menu state
   current_game_state = GAME_STATE_MENU
   
   if not player_manager.get_player_count then
      printh("ERROR: player_manager.get_player_count is NIL in _init()", true)
   end
-  -- Cursors and game pieces will be initialized when transitioning from menu to playing state
 end
 
 
 
 function update_menu_state()
-  -- Menu has three options: stash size, player count, round time
   if not menu_selection then menu_selection = 1 end
 
-  -- Navigate between menu options with up/down
   if btnp(⬆️) then
     menu_selection = max(1, menu_selection - 1)
   elseif btnp(⬇️) then
     menu_selection = min(3, menu_selection + 1)
   end
 
-  -- Adjust the selected option with left/right
   if menu_selection == 1 then
-    -- Adjust stash size
     if btnp(⬅️) then
       STASH_SIZE = max(3, STASH_SIZE - 1)
     elseif btnp(➡️) then
       STASH_SIZE = min(10, STASH_SIZE + 1)
     end
   elseif menu_selection == 2 then
-    -- Adjust player count
     if btnp(⬅️) then
       PLAYER_COUNT = max(2, PLAYER_COUNT - 1)
     elseif btnp(➡️) then
       PLAYER_COUNT = min(4, PLAYER_COUNT + 1)
     end
   elseif menu_selection == 3 then
-    -- Adjust round time
     if btnp(⬅️) then
       ROUND_TIME = max(ROUND_TIME_MIN, ROUND_TIME - 30)
     elseif btnp(➡️) then
@@ -387,7 +304,6 @@ function update_menu_state()
     end
   end
 
-  -- Start game
   if btnp(❎) or btnp(🅾️) then
     go_to_state(GAME_STATE_PLAYING)
   end
@@ -395,10 +311,8 @@ end
 
 
 function update_playing_state()
-  -- Update pre-game sequence state first
   local pre_game_active = update_pre_game_sequence()
 
-  -- Only update controls and game logic if pre-game is NOT in 'countdown'
   if pre_game_state ~= 'countdown' then
     if original_update_controls_func then 
       original_update_controls_func() 
@@ -417,19 +331,15 @@ function update_playing_state()
     end
   end
 
-  -- Update game timer (decrease by 1/30th of a second each frame)
-  -- Only run game timer if pre-game sequence is fully done
   if not pre_game_active then
     GAME_TIMER = max(0, GAME_TIMER - (1/30))
   end
 
-  -- Check for game over condition when timer runs out
   if GAME_TIMER <= 0 and current_game_state == GAME_STATE_PLAYING and not pre_game_active then
-    -- Final scoring and move to gameover state
     if score_pieces then score_pieces() end
     current_game_state = GAME_STATE_GAMEOVER
     GAME_TIMER = 0
-    gameover_timer = 2 -- 2 seconds pause before showing scores
+    gameover_timer = 2
   end
 end
 
@@ -445,12 +355,10 @@ function _update()
 end
 
 function update_gameover_state()
-  -- Decrement the gameover pause timer if active
   if gameover_timer and gameover_timer > 0 then
     gameover_timer = max(0, gameover_timer - (1/30))
     return
   end
-  -- Only allow returning to menu after timer expires
   if btnp(❎) or btnp(🅾️) then
     go_to_state(GAME_STATE_MENU)
   end
@@ -460,7 +368,6 @@ end
 
 
 function draw_menu_state()
-  -- main title and prompt
   print("P8PANIC", 50, 40, 7)
   print("PRESS X OR O", 40, 54, 8)
   print("TO START", 50, 62, 8)
@@ -476,26 +383,20 @@ function draw_menu_state()
 end
 
 function draw_playing_state_elements()
-  -- Draw pre-game text if the sequence is active
   if pre_game_state == 'countdown' or pre_game_state == 'panic' then
     draw_pre_game_text()
-    -- Also draw cursors during countdown and panic
     for _,c in ipairs(cursors) do if c.draw then c:draw() end end
     if pre_game_state == 'countdown' then
-      return -- Don't draw other game elements during countdown
+      return
     end
   end
 
-  -- If pre-game is done, or it's panic phase, draw normal game elements
   if pre_game_state == 'done' or pre_game_state == 'panic' or pre_game_state == nil then
-    -- Draw game timer in MM:SS
     local secs = flr(GAME_TIMER)
     local timer_str = flr(secs/60) .. ":" .. (secs%60 < 10 and "0" or "") .. (secs%60)
     print(timer_str, 62 - #timer_str*2, 2, GAME_TIMER < 30 and 8 or 7)
-    -- Draw pieces and cursors
     for _,o in ipairs(pieces) do if o.draw then o:draw() end end
     for _,c in ipairs(cursors) do if c.draw then c:draw() end end
-    -- Draw stash bars for each player
     local m,fw,fh,bh,bw,bs,nb = 2,4,5,8,2,1,4
     for i=1,player_manager.get_player_count() do
       local p = player_manager.get_player(i)
@@ -506,9 +407,7 @@ function draw_playing_state_elements()
         local block_w = max(sw,tw)
         local ax = (i==2 or i==4) and (128-m-block_w) or m
         local ay = (i>=3) and (128-m-(fh+2+bh)) or m
-        -- score
         print(s, ax + ((block_w-sw) * ((i==2 or i==4) and 1 or 0)), ay, p:get_color())
-        -- bars
         local bx = (i==2 or i==4) and (ax + block_w - tw) or ax
         local by = ay + fh + 1
         for j=1,nb do
@@ -517,11 +416,9 @@ function draw_playing_state_elements()
           local h = flr(cnt / STASH_SIZE * bh)
           h = mid(0,h,bh)
           if i==1 or i==2 then
-            -- Top players: bars grow down from just below score
             if h>0 then rectfill(bx,by,bx+bw-1,by+h-1,col)
             else line(bx,by,bx+bw-1,by,1) end
           else
-            -- Bottom players: bars grow up from bottom as before
             if h>0 then rectfill(bx,by+(bh-h),bx+bw-1,by+bh-1,col)
             else line(bx,by+bh-1,bx+bw-1,by+bh-1,1) end
           end
@@ -539,7 +436,6 @@ function draw_gameover_state()
   draw_playing_state_elements()
   print("FINISH!", 52, 60, 7)
   if not gameover_timer or gameover_timer <= 0 then
-    -- Sort players by score (highest first)
     local sorted_players = {}
     for i = 1, player_manager.get_player_count() do
       local p = player_manager.get_player(i)
@@ -547,7 +443,6 @@ function draw_gameover_state()
         add(sorted_players, {player = p, id = i})
       end
     end
-    -- Sort by score descending
     for i = 1, #sorted_players - 1 do
       for j = i + 1, #sorted_players do
         if sorted_players[j].player:get_score() > sorted_players[i].player:get_score() then
@@ -557,7 +452,6 @@ function draw_gameover_state()
         end
       end
     end
-    -- Display sorted players
     for i = 1, #sorted_players do
       local p = sorted_players[i].player
       local pid = sorted_players[i].id
@@ -580,60 +474,48 @@ function _draw()
   end
 end
 -->8
--- src/4.player.lua
---#globals player_manager STASH_SIZE
---#globals player_manager
-
+--player
 local Player = {}
-Player.__index = Player -- For metatable inheritance
+Player.__index = Player
 
--- Constructor for a new player object
-function Player:new(id, initial_score, color, ghost_color) -- Added initial_score
+function Player:new(id, initial_score, color, ghost_color)
   local instance = {
     id = id,
     score = initial_score or 0,
     color = color,
     ghost_color = ghost_color,
-    stash = {}, -- Initialize stash as an empty table
-    capture_mode = false -- Added capture_mode
+    stash = {},
+    capture_mode = false
   }
-  -- Initialize stash with configurable number of pieces (STASH_SIZE) of the player's own color
   instance.stash[color] = STASH_SIZE or 6
   setmetatable(instance, self)
   return instance
 end
 
--- Method to get player's score (example of a method)
 function Player:get_score()
   return self.score
 end
 
--- Method to increment player's score (example of a method)
 function Player:add_score(points)
   self.score = self.score + (points or 1)
 end
 
--- Method to get player's color
 function Player:get_color()
   return self.color
 end
 
--- Method to get player's ghost color
 function Player:get_ghost_color()
   return self.ghost_color
 end
 
--- Method to check if player is in capture mode
 function Player:is_in_capture_mode()
   return self.capture_mode
 end
 
--- Method to toggle capture mode
 function Player:toggle_capture_mode()
   self.capture_mode = not self.capture_mode
 end
 
--- Method to add a captured piece to the stash
 function Player:add_captured_piece(piece_color)
   if self.stash[piece_color] == nil then
     self.stash[piece_color] = 0
@@ -641,18 +523,14 @@ function Player:add_captured_piece(piece_color)
   self.stash[piece_color] += 1
 end
 
--- Method to get the count of captured pieces of a specific color
 function Player:get_captured_count(piece_color)
   return self.stash[piece_color] or 0
 end
 
--- Method to check if a player has a piece of a certain color in their stash
 function Player:has_piece_in_stash(piece_color)
   return (self.stash[piece_color] or 0) > 0
 end
 
--- Method to use a piece from the stash
--- Returns true if successful, false otherwise
 function Player:use_piece_from_stash(piece_color)
   if self:has_piece_in_stash(piece_color) then
     self.stash[piece_color] = self.stash[piece_color] - 1
@@ -661,104 +539,75 @@ function Player:use_piece_from_stash(piece_color)
   return false
 end
 
-player_manager.colors = { -- Changed : to .
-  [1] = 12, -- Player 1: Light Blue
-  [2] = 8,  -- Player 2: Red (Pico-8 color 8 is red)
-  [3] = 11, -- Player 3: Green
-  [4] = 10  -- Player 4: Yellow
+player_manager.colors = {
+  [1] = 12,
+  [2] = 8,
+  [3] = 11,
+  [4] = 10
 }
 
--- Ghost/Cursor colors
-player_manager.ghost_colors = { -- Added ghost_colors table
-  [1] = 1,  -- Player 1: Dark Blue (Pico-8 color 1)
-  [2] = 9,  -- Player 2: Orange (Pico-8 color 9)
-  [3] = 3,  -- Player 3: Dark Green (Pico-8 color 3)
-  [4] = 4   -- Player 4: Brown (Pico-8 color 4)
+player_manager.ghost_colors = {
+  [1] = 1,
+  [2] = 9,
+  [3] = 3,
+  [4] = 4
 }
 
 player_manager.max_players = 4
-player_manager.current_players = {} -- Table to hold active player instances
+player_manager.current_players = {}
 
--- Function to initialize players at the start of a game
 function player_manager.init_players(num_players)
   if num_players < 1 or num_players > player_manager.max_players then
     printh("Error: Invalid number of players. Must be between 1 and " .. player_manager.max_players)
     return
   end
 
-  player_manager.current_players = {} -- Reset current players
+  player_manager.current_players = {}
 
   for i = 1, num_players do
     local color = player_manager.colors[i]
-    local ghost_color = player_manager.ghost_colors[i] -- Get ghost_color
+    local ghost_color = player_manager.ghost_colors[i]
     if not color then
       printh("Warning: No color defined for player " .. i .. ". Defaulting to white (7).")
-      color = 7 -- Default to white if color not found
+      color = 7
     end
-    if not ghost_color then -- Check for ghost_color
+    if not ghost_color then
       printh("Warning: No ghost color defined for player " .. i .. ". Defaulting to dark blue (1).")
-      ghost_color = 1 -- Default ghost_color
+      ghost_color = 1
     end
-    player_manager.current_players[i] = Player:new(i, 0, color, ghost_color) -- Pass ghost_color to constructor
+    player_manager.current_players[i] = Player:new(i, 0, color, ghost_color)
   end
   
   printh("Initialized " .. num_players .. " players.")
 end
 
--- Function to get a player's instance
 function player_manager.get_player(player_id)
   return player_manager.current_players[player_id]
 end
 
--- Function to get a player's color (can still be useful as a direct utility)
 function player_manager.get_player_color(player_id)
   local p_instance = player_manager.get_player(player_id)
   if p_instance then
     return p_instance:get_color()
   else
-    return 7 -- Default to white if player not found, or handle error
+    return 7
   end
 end
 
--- Function to get a player's ghost color
 function player_manager.get_player_ghost_color(player_id)
   local p_instance = player_manager.get_player(player_id)
   if p_instance then
     return p_instance:get_ghost_color()
   else
-    return 1 -- Default to dark blue if player not found
+    return 1
   end
 end
 
--- Function to get the current number of initialized players
 function player_manager.get_player_count()
   return #player_manager.current_players
 end
-
--- Example Usage (for testing within this file, remove or comment out for production)
--- player_manager.init_players(2)
--- local p1 = player_manager.get_player(1)
--- if p1 then
---   printh("Player 1 ID: " .. p1.id)
---   printh("Player 1 Color: " .. p1:get_color())
---   printh("Player 1 Ghost Color: " .. p1:get_ghost_color()) -- Test ghost color
---   p1:add_score(10)
---   printh("Player 1 Score: " .. p1:get_score())
--- end
-
--- local p2_color = player_manager.get_player_color(2)
--- printh("Player 2 Color (direct): " .. (p2_color or "not found"))
--- local p2_ghost_color = player_manager.get_player_ghost_color(2)
--- printh("Player 2 Ghost Color (direct): " .. (p2_ghost_color or "not found"))
-
-
--- return player_manager -- Old return statement
--- player_manager is global by default via the above declaration
 -->8
--- src/2.scoring.lua
--- Scoring Module
---#globals pieces player_manager ray_segment_intersect LASER_LEN cos sin add ipairs del deli
-
+--scoring
 function reset_player_scores()
   if player_manager and player_manager.current_players then
     for _, player_obj in ipairs(player_manager.current_players) do
@@ -774,8 +623,7 @@ function reset_piece_states_for_scoring()
     if p_obj then
       p_obj.hits = 0
       p_obj.targeting_attackers = {}
-      p_obj.dbg_target_count = nil -- Ensure debug display counter is cleared
-      -- p_obj.state = nil -- or some default state if applicable
+      p_obj.dbg_target_count = nil
     end
   end
 end
@@ -784,8 +632,8 @@ function _check_attacker_hit_piece(attacker_obj, target_obj, player_manager_para
   local attacker_vertices = attacker_obj:get_draw_vertices()
   if not attacker_vertices or #attacker_vertices == 0 then return end
   local apex = attacker_vertices[1]
-  local dir_x = cos(attacker_obj.orientation) -- cos is global via --#globals
-  local dir_y = sin(attacker_obj.orientation) -- sin is global via --#globals
+  local dir_x = cos(attacker_obj.orientation)
+  local dir_y = sin(attacker_obj.orientation)
 
   local target_corners = target_obj:get_draw_vertices()
   if not target_corners or #target_corners == 0 then return end
@@ -807,7 +655,6 @@ function _check_attacker_hit_piece(attacker_obj, target_obj, player_manager_para
         attacker_player:add_score(1)
       end
 
-      -- Update state of the target_obj based on hits
       if target_obj.type == "defender" then
         if target_obj.hits >= 3 then
           target_obj.state = "overcharged"
@@ -816,10 +663,7 @@ function _check_attacker_hit_piece(attacker_obj, target_obj, player_manager_para
         elseif target_obj.hits == 1 then
           target_obj.state = "successful"
         end
-        -- If a defender has 0 hits, its state is not changed here; it retains its prior state (e.g., from creation or previous scoring).
       end
-      -- Attacker pieces do not change their state to 'overcharged', 'unsuccessful', or 'successful' based on being hit.
-      -- Their state (e.g., 'neutral') would be managed by other game mechanics if needed.
       return true
     end
   end
@@ -846,33 +690,25 @@ function score_pieces()
   reset_player_scores()
   reset_piece_states_for_scoring()
 
-  -- Score attackers hitting other pieces (defenders and other attackers)
-  for _, attacker_obj in ipairs(pieces) do -- Use global 'pieces' directly
+  for _, attacker_obj in ipairs(pieces) do
     if attacker_obj and attacker_obj.type == "attacker" then
-      -- First check against defenders
-      for _, defender_obj in ipairs(pieces) do -- Use global 'pieces' directly
+      for _, defender_obj in ipairs(pieces) do
         if defender_obj and defender_obj.type == "defender" then
-          -- Pass global variables directly to the helper function
           _check_attacker_hit_piece(attacker_obj, defender_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
         end
       end
       
-      -- Then check against other attackers (excluding self)
       for _, other_attacker_obj in ipairs(pieces) do
         if other_attacker_obj and other_attacker_obj.type == "attacker" and other_attacker_obj ~= attacker_obj then
-          -- Check if attacker hits other attacker
           _check_attacker_hit_piece(attacker_obj, other_attacker_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
         end
       end
     end
   end
 
-  -- Score defenders based on incoming attackers
-  for _, p_obj in ipairs(pieces) do -- Use global 'pieces' directly
-    -- Pass global 'player_manager' directly
+  for _, p_obj in ipairs(pieces) do
     _score_defender(p_obj, player_manager)
     
-    -- Clear any debug target count that might be set
     if p_obj.type == "defender" then
       p_obj.dbg_target_count = nil
     end
@@ -888,48 +724,33 @@ function score_pieces()
   end
   pieces = remaining_pieces
 end
-
--- No need for any additional export - in PICO-8, functions are global by default
 -->8
--- src/5.piece.lua
-
---#globals pieces player_manager ray_segment_intersect LASER_LEN 
---#globals cos sin ipairs
-
--- Forward declarations for metatables if needed
+--piece
 Piece = {}
 Piece.__index = Piece
 
 Attacker = {}
 Attacker.__index = Attacker
-setmetatable(Attacker, {__index = Piece}) -- Inherit from Piece
+setmetatable(Attacker, {__index = Piece})
 
 Defender = {}
 Defender.__index = Defender
-setmetatable(Defender, {__index = Piece}) -- Inherit from Piece
+setmetatable(Defender, {__index = Piece})
 
--- Piece constants (can be moved from 0.init.lua)
 DEFENDER_WIDTH = 8
 DEFENDER_HEIGHT = 8
 local ATTACKER_TRIANGLE_HEIGHT = 8
 local ATTACKER_TRIANGLE_BASE = 6
-    -- local LASER_LEN = 60 -- This is globally defined in 0.init.lua as LASER_LEN and accessed via LASER_LEN
 
--- Cached math functions
 local cos, sin = cos, sin
 local max, min = max, min
 local sqrt, abs = sqrt, abs
 
--- Base Piece methods
 function Piece:new(o)
   o = o or {}
-  -- Common properties: position, orientation, owner_id, type
-  o.position = o.position or {x=64, y=64} -- Default position
+  o.position = o.position or {x=64, y=64}
   o.orientation = o.orientation or 0
-  -- o.owner_id should be provided
-  -- o.type should be set by subclasses or factory
-  -- o.color is now passed in params for placed pieces
-  setmetatable(o, self) -- Set metatable after o is populated
+  setmetatable(o, self)
   return o
 end
 
@@ -937,7 +758,6 @@ function Piece:get_color()
   if self.is_ghost and self.ghost_color_override then
     return self.ghost_color_override
   end
-  -- If a color is explicitly set on the piece (e.g., when placed from stash), use it.
   if self.color then
     return self.color
   end
@@ -947,7 +767,7 @@ function Piece:get_color()
       return owner_player:get_color()
     end
   end
-  return 7 -- Default color (white)
+  return 7
 end
 
 function Piece:get_draw_vertices()
@@ -959,10 +779,10 @@ function Piece:get_draw_vertices()
   if self.type == "attacker" then
     local h = ATTACKER_TRIANGLE_HEIGHT
     local b = ATTACKER_TRIANGLE_BASE
-    add(local_corners, {x = h/2, y = 0})      -- Apex
-    add(local_corners, {x = -h/2, y = b/2})     -- Base corner 1
-    add(local_corners, {x = -h/2, y = -b/2})    -- Base corner 2
-  else -- defender
+    add(local_corners, {x = h/2, y = 0})
+    add(local_corners, {x = -h/2, y = b/2})
+    add(local_corners, {x = -h/2, y = -b/2})
+  else
     local w, h = DEFENDER_WIDTH, DEFENDER_HEIGHT
     local hw = w / 2
     local hh = h / 2
@@ -982,7 +802,6 @@ function Piece:get_draw_vertices()
 end
 
 function Piece:draw()
-  -- Basic draw, to be overridden by Attacker/Defender
   local vertices = self:get_draw_vertices()
   local color = self:get_color()
   if #vertices >= 3 then
@@ -994,29 +813,25 @@ function Piece:draw()
   end
 end
 
--- Attacker methods
 function Attacker:new(o)
   o = o or {}
   o.type = "attacker"
   o.hits = 0
-  o.state = "neutral" -- "neutral", "unsuccessful", "overcharged"
+  o.state = "neutral"
   o.targeting_attackers = {}
-  -- Attacker-specific initializations
-  return Piece.new(self, o) -- Call base constructor
+  return Piece.new(self, o)
 end
 
 function Attacker:draw()
-  -- First, draw the attacker triangle itself
-  Piece.draw(self) -- Call base Piece:draw to draw the triangle shape
+  Piece.draw(self)
 
-  -- Now, draw the laser
   local vertices = self:get_draw_vertices()
   if not vertices or #vertices == 0 then return end
-  local apex = vertices[1] -- Assuming apex is the first vertex for attacker
+  local apex = vertices[1]
 
   local dir_x = cos(self.orientation)
   local dir_y = sin(self.orientation)
-  local laser_color = self:get_color() -- Default laser color
+  local laser_color = self:get_color()
   local laser_end_x = apex.x + dir_x * LASER_LEN
   local laser_end_y = apex.y + dir_y * LASER_LEN
   local closest_hit_t = LASER_LEN
@@ -1024,10 +839,9 @@ function Attacker:draw()
   local hit_piece_state = nil
   local hit_piece_type = nil
 
-  -- Check for intersections with all pieces (defenders and attackers)
   if pieces then
     for _, other_piece in ipairs(pieces) do
-      if other_piece ~= self then -- Don't check against self
+      if other_piece ~= self then
         local piece_corners = other_piece:get_draw_vertices()
         for j = 1, #piece_corners do
           local k = (j % #piece_corners) + 1
@@ -1039,7 +853,7 @@ function Attacker:draw()
             closest_hit_t = t
             laser_end_x = ix
             laser_end_y = iy
-            hit_piece_state = other_piece.state -- Store the state of the hit piece
+            hit_piece_state = other_piece.state
             hit_piece_type = other_piece.type
           end
         end
@@ -1047,18 +861,16 @@ function Attacker:draw()
     end
   end
 
-  -- Adjust laser color based on hit piece's state
   if hit_piece_state == "unsuccessful" then
-    laser_color = 8 -- Red for unsuccessful
+    laser_color = 8
   elseif hit_piece_state == "overcharged" then
-    laser_color = 10 -- Yellow for overcharged
+    laser_color = 10
   end
 
-  -- "Dancing ants" animation for the laser beam
   local ant_spacing = 4
   local ant_length = 2
   local num_ants = flr(closest_hit_t / ant_spacing)
-  local time_factor = time() * 20 -- Adjust speed of ants
+  local time_factor = time() * 20
 
   for i = 0, num_ants - 1 do
     local ant_start_t = (i * ant_spacing + time_factor) % closest_hit_t
@@ -1070,7 +882,7 @@ function Attacker:draw()
       local ant_end_x = apex.x + dir_x * ant_end_t
       local ant_end_y = apex.y + dir_y * ant_end_t
       line(ant_start_x, ant_start_y, ant_end_x, ant_end_y, laser_color)
-    else -- Handle ant wrapping around the end of the laser segment
+    else
       local segment1_end_t = closest_hit_t
       local segment1_start_x = apex.x + dir_x * ant_start_t
       local segment1_start_y = apex.y + dir_y * ant_start_t
@@ -1079,7 +891,7 @@ function Attacker:draw()
       line(segment1_start_x, segment1_start_y, segment1_end_x, segment1_end_y, laser_color)
       
       local segment2_len = ant_end_t - closest_hit_t
-      if segment2_len > 0 then -- only draw if there's a remainder
+      if segment2_len > 0 then
         local segment2_start_x = apex.x
         local segment2_start_y = apex.y
         local segment2_end_x = apex.x + dir_x * segment2_len
@@ -1090,20 +902,18 @@ function Attacker:draw()
   end
 end
 
--- Defender methods
 function Defender:new(o)
   o = o or {}
   o.type = "defender"
   o.hits = 0
-  o.state = "successful" -- "neutral", "unsuccessful", "overcharged"
+  o.state = "successful"
   o.targeting_attackers = {}
-  return Piece.new(self, o) -- Call base constructor
+  return Piece.new(self, o)
 end
 
 function Defender:draw()
   local vertices = self:get_draw_vertices()
   local color = self:get_color()
-  -- Defenders always draw in their owner's color
   if #vertices == 4 then
     line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, color)
     line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, color)
@@ -1112,48 +922,26 @@ function Defender:draw()
   end
 end
 
--- Factory function to create pieces
--- Global `pieces` table will be needed for laser interactions in Attacker:draw
--- It might be passed to Attacker:draw or accessed globally if available.
-function create_piece(params) -- `params` should include owner_id, type, position, orientation, color
+function create_piece(params)
   local piece_obj
   if params.type == "attacker" then
-    piece_obj = Attacker:new(params) -- Pass all params, including color
+    piece_obj = Attacker:new(params)
   elseif params.type == "defender" then
-    piece_obj = Defender:new(params) -- Pass all params, including color
+    piece_obj = Defender:new(params)
   else
     printh("Error: Unknown piece type: " .. (params.type or "nil"))
     return nil
   end
   return piece_obj
 end
-
--- The return statement makes these functions/tables available when this file is included.
--- We might not need to return Piece, Attacker, Defender if only create_piece is used externally.
--- create_piece is global by default
--- Or, more structured:
--- return {
---   create_piece = create_piece
--- }
 -->8
--- src/1.placement.lua
--- Placement Module
---#globals create_piece pieces ray_segment_intersect LASER_LEN player_manager score_pieces
---#globals cos sin max min sqrt abs add all ipairs
---#globals PLAYER_COUNT -- Though not directly used, it's part of the context of 0.init
-
--- Cached math functions (assuming they are available globally from 0.init.lua or PICO-8 defaults)
--- local cos, sin = cos, sin -- Or just use them directly
--- local max, min = max, min
--- local sqrt, abs = sqrt, abs
-
+--placement
 function legal_placement(piece_params)
-  -- UI overlay forbidden zones (16x16 px in each corner)
   local ui_zones = {
-    {x1=0, y1=0, x2=15, y2=15}, -- top-left
-    {x1=112, y1=0, x2=127, y2=15}, -- top-right
-    {x1=0, y1=112, x2=15, y2=127}, -- bottom-left
-    {x1=112, y1=112, x2=127, y2=127} -- bottom-right
+    {x1=0, y1=0, x2=15, y2=15},
+    {x1=112, y1=0, x2=127, y2=15},
+    {x1=0, y1=112, x2=15, y2=127},
+    {x1=112, y1=112, x2=127, y2=127}
   }
 
   local bw, bh = 128, 128
@@ -1163,7 +951,7 @@ function legal_placement(piece_params)
   local function vec_sub(a, b) return {x = a.x - b.x, y = a.y - b.y} end
   local function vec_dot(a, b) return a.x * b.x + a.y * b.y end
   local function project(vs, ax)
-    if not vs or #vs == 0 then return 0,0 end -- Guard against empty vertices
+    if not vs or #vs == 0 then return 0,0 end
     local mn, mx = vec_dot(vs[1], ax), vec_dot(vs[1], ax)
     for i = 2, #vs do
       local pr = vec_dot(vs[i], ax)
@@ -1173,7 +961,7 @@ function legal_placement(piece_params)
   end
   local function get_axes(vs)
     local ua = {}
-    if not vs or #vs < 2 then return ua end -- Need at least 2 vertices for an edge
+    if not vs or #vs < 2 then return ua end
     for i = 1, #vs do
       local p1 = vs[i]
       local p2 = vs[(i % #vs) + 1]
@@ -1191,10 +979,9 @@ function legal_placement(piece_params)
   end
 
   local corners = temp_piece_obj:get_draw_vertices()
-  if not corners or #corners == 0 then return false end -- No vertices to check
+  if not corners or #corners == 0 then return false end
   for c in all(corners) do
     if c.x < 0 or c.x > bw or c.y < 0 or c.y > bh then return false end
-    -- Block placement if any vertex is inside a UI overlay zone
     for z in all(ui_zones) do
       if c.x >= z.x1 and c.x <= z.x2 and c.y >= z.y1 and c.y <= z.y2 then
         return false
@@ -1204,13 +991,13 @@ function legal_placement(piece_params)
 
   for _, ep_obj in ipairs(pieces) do
     local ep_corners = ep_obj:get_draw_vertices()
-    if not ep_corners or #ep_corners == 0 then goto next_ep_check end -- Skip if existing piece has no vertices
+    if not ep_corners or #ep_corners == 0 then goto next_ep_check end
 
     local combined_axes = {}
     for ax_piece in all(get_axes(corners)) do add(combined_axes, ax_piece) end
     for ax_ep in all(get_axes(ep_corners)) do add(combined_axes, ax_ep) end
     
-    if #combined_axes == 0 then -- Potentially both are lines or points
+    if #combined_axes == 0 then
         local min_x1, max_x1, min_y1, max_y1 = bw, 0, bh, 0
         for c in all(corners) do min_x1=min(min_x1,c.x) max_x1=max(max_x1,c.x) min_y1=min(min_y1,c.y) max_y1=max(max_y1,c.y) end
         local min_x2, max_x2, min_y2, max_y2 = bw, 0, bh, 0
@@ -1266,26 +1053,25 @@ end
 
 function place_piece(piece_params, player_obj)
   if legal_placement(piece_params) then
-    local piece_color_to_place = piece_params.color -- Strictly use the color from params
+    local piece_color_to_place = piece_params.color
 
     if piece_color_to_place == nil then
       printh("PLACE ERROR: piece_params.color is NIL!")
-      return false -- Fail if no color specified by controls
+      return false
     end
     
     printh("Place attempt: P"..player_obj.id.." color: "..tostring(piece_color_to_place).." type: "..piece_params.type)
 
     if player_obj:use_piece_from_stash(piece_color_to_place) then
-      -- piece_params already contains the .color, create_piece should use it
       local new_piece_obj = create_piece(piece_params) 
       if new_piece_obj then
         add(pieces, new_piece_obj)
-        score_pieces() -- Recalculate scores after placing a piece
+        score_pieces()
         printh("Placed piece with color: " .. tostring(new_piece_obj:get_color()))
         return true
       else
         printh("Failed to create piece object after stash use.")
-        player_obj:add_captured_piece(piece_color_to_place) -- Return piece to stash
+        player_obj:add_captured_piece(piece_color_to_place)
         return false
       end
     else

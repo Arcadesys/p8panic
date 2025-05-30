@@ -1,42 +1,28 @@
--- src/5.piece.lua
-
---#globals pieces player_manager ray_segment_intersect LASER_LEN 
---#globals cos sin ipairs
-
--- Forward declarations for metatables if needed
 Piece = {}
 Piece.__index = Piece
 
 Attacker = {}
 Attacker.__index = Attacker
-setmetatable(Attacker, {__index = Piece}) -- Inherit from Piece
+setmetatable(Attacker, {__index = Piece})
 
 Defender = {}
 Defender.__index = Defender
-setmetatable(Defender, {__index = Piece}) -- Inherit from Piece
+setmetatable(Defender, {__index = Piece})
 
--- Piece constants (can be moved from 0.init.lua)
 DEFENDER_WIDTH = 8
 DEFENDER_HEIGHT = 8
 local ATTACKER_TRIANGLE_HEIGHT = 8
 local ATTACKER_TRIANGLE_BASE = 6
-    -- local LASER_LEN = 60 -- This is globally defined in 0.init.lua as LASER_LEN and accessed via LASER_LEN
 
--- Cached math functions
 local cos, sin = cos, sin
 local max, min = max, min
 local sqrt, abs = sqrt, abs
 
--- Base Piece methods
 function Piece:new(o)
   o = o or {}
-  -- Common properties: position, orientation, owner_id, type
-  o.position = o.position or {x=64, y=64} -- Default position
+  o.position = o.position or {x=64, y=64}
   o.orientation = o.orientation or 0
-  -- o.owner_id should be provided
-  -- o.type should be set by subclasses or factory
-  -- o.color is now passed in params for placed pieces
-  setmetatable(o, self) -- Set metatable after o is populated
+  setmetatable(o, self)
   return o
 end
 
@@ -44,7 +30,6 @@ function Piece:get_color()
   if self.is_ghost and self.ghost_color_override then
     return self.ghost_color_override
   end
-  -- If a color is explicitly set on the piece (e.g., when placed from stash), use it.
   if self.color then
     return self.color
   end
@@ -54,7 +39,7 @@ function Piece:get_color()
       return owner_player:get_color()
     end
   end
-  return 7 -- Default color (white)
+  return 7
 end
 
 function Piece:get_draw_vertices()
@@ -66,10 +51,10 @@ function Piece:get_draw_vertices()
   if self.type == "attacker" then
     local h = ATTACKER_TRIANGLE_HEIGHT
     local b = ATTACKER_TRIANGLE_BASE
-    add(local_corners, {x = h/2, y = 0})      -- Apex
-    add(local_corners, {x = -h/2, y = b/2})     -- Base corner 1
-    add(local_corners, {x = -h/2, y = -b/2})    -- Base corner 2
-  else -- defender
+    add(local_corners, {x = h/2, y = 0})
+    add(local_corners, {x = -h/2, y = b/2})
+    add(local_corners, {x = -h/2, y = -b/2})
+  else
     local w, h = DEFENDER_WIDTH, DEFENDER_HEIGHT
     local hw = w / 2
     local hh = h / 2
@@ -89,7 +74,6 @@ function Piece:get_draw_vertices()
 end
 
 function Piece:draw()
-  -- Basic draw, to be overridden by Attacker/Defender
   local vertices = self:get_draw_vertices()
   local color = self:get_color()
   if #vertices >= 3 then
@@ -101,29 +85,25 @@ function Piece:draw()
   end
 end
 
--- Attacker methods
 function Attacker:new(o)
   o = o or {}
   o.type = "attacker"
   o.hits = 0
-  o.state = "neutral" -- "neutral", "unsuccessful", "overcharged"
+  o.state = "neutral"
   o.targeting_attackers = {}
-  -- Attacker-specific initializations
-  return Piece.new(self, o) -- Call base constructor
+  return Piece.new(self, o)
 end
 
 function Attacker:draw()
-  -- First, draw the attacker triangle itself
-  Piece.draw(self) -- Call base Piece:draw to draw the triangle shape
+  Piece.draw(self)
 
-  -- Now, draw the laser
   local vertices = self:get_draw_vertices()
   if not vertices or #vertices == 0 then return end
-  local apex = vertices[1] -- Assuming apex is the first vertex for attacker
+  local apex = vertices[1]
 
   local dir_x = cos(self.orientation)
   local dir_y = sin(self.orientation)
-  local laser_color = self:get_color() -- Default laser color
+  local laser_color = self:get_color()
   local laser_end_x = apex.x + dir_x * LASER_LEN
   local laser_end_y = apex.y + dir_y * LASER_LEN
   local closest_hit_t = LASER_LEN
@@ -131,10 +111,9 @@ function Attacker:draw()
   local hit_piece_state = nil
   local hit_piece_type = nil
 
-  -- Check for intersections with all pieces (defenders and attackers)
   if pieces then
     for _, other_piece in ipairs(pieces) do
-      if other_piece ~= self then -- Don't check against self
+      if other_piece ~= self then
         local piece_corners = other_piece:get_draw_vertices()
         for j = 1, #piece_corners do
           local k = (j % #piece_corners) + 1
@@ -146,7 +125,7 @@ function Attacker:draw()
             closest_hit_t = t
             laser_end_x = ix
             laser_end_y = iy
-            hit_piece_state = other_piece.state -- Store the state of the hit piece
+            hit_piece_state = other_piece.state
             hit_piece_type = other_piece.type
           end
         end
@@ -154,18 +133,16 @@ function Attacker:draw()
     end
   end
 
-  -- Adjust laser color based on hit piece's state
   if hit_piece_state == "unsuccessful" then
-    laser_color = 8 -- Red for unsuccessful
+    laser_color = 8
   elseif hit_piece_state == "overcharged" then
-    laser_color = 10 -- Yellow for overcharged
+    laser_color = 10
   end
 
-  -- "Dancing ants" animation for the laser beam
   local ant_spacing = 4
   local ant_length = 2
   local num_ants = flr(closest_hit_t / ant_spacing)
-  local time_factor = time() * 20 -- Adjust speed of ants
+  local time_factor = time() * 20
 
   for i = 0, num_ants - 1 do
     local ant_start_t = (i * ant_spacing + time_factor) % closest_hit_t
@@ -177,7 +154,7 @@ function Attacker:draw()
       local ant_end_x = apex.x + dir_x * ant_end_t
       local ant_end_y = apex.y + dir_y * ant_end_t
       line(ant_start_x, ant_start_y, ant_end_x, ant_end_y, laser_color)
-    else -- Handle ant wrapping around the end of the laser segment
+    else
       local segment1_end_t = closest_hit_t
       local segment1_start_x = apex.x + dir_x * ant_start_t
       local segment1_start_y = apex.y + dir_y * ant_start_t
@@ -186,7 +163,7 @@ function Attacker:draw()
       line(segment1_start_x, segment1_start_y, segment1_end_x, segment1_end_y, laser_color)
       
       local segment2_len = ant_end_t - closest_hit_t
-      if segment2_len > 0 then -- only draw if there's a remainder
+      if segment2_len > 0 then
         local segment2_start_x = apex.x
         local segment2_start_y = apex.y
         local segment2_end_x = apex.x + dir_x * segment2_len
@@ -197,20 +174,18 @@ function Attacker:draw()
   end
 end
 
--- Defender methods
 function Defender:new(o)
   o = o or {}
   o.type = "defender"
   o.hits = 0
-  o.state = "successful" -- "neutral", "unsuccessful", "overcharged"
+  o.state = "successful"
   o.targeting_attackers = {}
-  return Piece.new(self, o) -- Call base constructor
+  return Piece.new(self, o)
 end
 
 function Defender:draw()
   local vertices = self:get_draw_vertices()
   local color = self:get_color()
-  -- Defenders always draw in their owner's color
   if #vertices == 4 then
     line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, color)
     line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, color)
@@ -219,26 +194,15 @@ function Defender:draw()
   end
 end
 
--- Factory function to create pieces
--- Global `pieces` table will be needed for laser interactions in Attacker:draw
--- It might be passed to Attacker:draw or accessed globally if available.
-function create_piece(params) -- `params` should include owner_id, type, position, orientation, color
+function create_piece(params)
   local piece_obj
   if params.type == "attacker" then
-    piece_obj = Attacker:new(params) -- Pass all params, including color
+    piece_obj = Attacker:new(params)
   elseif params.type == "defender" then
-    piece_obj = Defender:new(params) -- Pass all params, including color
+    piece_obj = Defender:new(params)
   else
     printh("Error: Unknown piece type: " .. (params.type or "nil"))
     return nil
   end
   return piece_obj
 end
-
--- The return statement makes these functions/tables available when this file is included.
--- We might not need to return Piece, Attacker, Defender if only create_piece is used externally.
--- create_piece is global by default
--- Or, more structured:
--- return {
---   create_piece = create_piece
--- }
