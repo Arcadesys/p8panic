@@ -1,7 +1,3 @@
--- src/2.scoring.lua
--- Scoring Module
---#globals pieces player_manager ray_segment_intersect LASER_LEN cos sin add ipairs del deli
-
 function reset_player_scores()
   if player_manager and player_manager.current_players then
     for _, player_obj in ipairs(player_manager.current_players) do
@@ -17,8 +13,7 @@ function reset_piece_states_for_scoring()
     if p_obj then
       p_obj.hits = 0
       p_obj.targeting_attackers = {}
-      p_obj.dbg_target_count = nil -- Ensure debug display counter is cleared
-      -- p_obj.state = nil -- or some default state if applicable
+      p_obj.dbg_target_count = nil
     end
   end
 end
@@ -27,8 +22,8 @@ function _check_attacker_hit_piece(attacker_obj, target_obj, player_manager_para
   local attacker_vertices = attacker_obj:get_draw_vertices()
   if not attacker_vertices or #attacker_vertices == 0 then return end
   local apex = attacker_vertices[1]
-  local dir_x = cos(attacker_obj.orientation) -- cos is global via --#globals
-  local dir_y = sin(attacker_obj.orientation) -- sin is global via --#globals
+  local dir_x = cos(attacker_obj.orientation)
+  local dir_y = sin(attacker_obj.orientation)
 
   local target_corners = target_obj:get_draw_vertices()
   if not target_corners or #target_corners == 0 then return end
@@ -50,7 +45,6 @@ function _check_attacker_hit_piece(attacker_obj, target_obj, player_manager_para
         attacker_player:add_score(1)
       end
 
-      -- Update state of the target_obj based on hits
       if target_obj.type == "defender" then
         if target_obj.hits >= 3 then
           target_obj.state = "overcharged"
@@ -59,10 +53,7 @@ function _check_attacker_hit_piece(attacker_obj, target_obj, player_manager_para
         elseif target_obj.hits == 1 then
           target_obj.state = "successful"
         end
-        -- If a defender has 0 hits, its state is not changed here; it retains its prior state (e.g., from creation or previous scoring).
       end
-      -- Attacker pieces do not change their state to 'overcharged', 'unsuccessful', or 'successful' based on being hit.
-      -- Their state (e.g., 'neutral') would be managed by other game mechanics if needed.
       return true
     end
   end
@@ -89,33 +80,25 @@ function score_pieces()
   reset_player_scores()
   reset_piece_states_for_scoring()
 
-  -- Score attackers hitting other pieces (defenders and other attackers)
-  for _, attacker_obj in ipairs(pieces) do -- Use global 'pieces' directly
+  for _, attacker_obj in ipairs(pieces) do
     if attacker_obj and attacker_obj.type == "attacker" then
-      -- First check against defenders
-      for _, defender_obj in ipairs(pieces) do -- Use global 'pieces' directly
+      for _, defender_obj in ipairs(pieces) do
         if defender_obj and defender_obj.type == "defender" then
-          -- Pass global variables directly to the helper function
           _check_attacker_hit_piece(attacker_obj, defender_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
         end
       end
       
-      -- Then check against other attackers (excluding self)
       for _, other_attacker_obj in ipairs(pieces) do
         if other_attacker_obj and other_attacker_obj.type == "attacker" and other_attacker_obj ~= attacker_obj then
-          -- Check if attacker hits other attacker
           _check_attacker_hit_piece(attacker_obj, other_attacker_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
         end
       end
     end
   end
 
-  -- Score defenders based on incoming attackers
-  for _, p_obj in ipairs(pieces) do -- Use global 'pieces' directly
-    -- Pass global 'player_manager' directly
+  for _, p_obj in ipairs(pieces) do
     _score_defender(p_obj, player_manager)
     
-    -- Clear any debug target count that might be set
     if p_obj.type == "defender" then
       p_obj.dbg_target_count = nil
     end
@@ -131,5 +114,3 @@ function score_pieces()
   end
   pieces = remaining_pieces
 end
-
--- No need for any additional export - in PICO-8, functions are global by default

@@ -1,35 +1,86 @@
+function finish_game_menuitem()
+  if current_game_state == GAME_STATE_PLAYING then
+    if score_pieces then score_pieces() end
+    current_game_state = GAME_STATE_GAMEOVER
+    GAME_TIMER = 0
+  end
+end
+
+gameover_timer = 2
+
+pre_game_state = nil
+pre_game_start_t = 0
+pre_game_sequence = {"3...", "2...", "1..."}
+
+function draw_centered_sequence(seq, start_t, color)
+  local elapsed = time() - start_t
+  local idx = flr(elapsed) + 1
+  if idx <= #seq then
+    local s = seq[idx]
+    print(s, 64 - (#s * 2), 64, color or 7)
+    return false
+  end
+  return true
+end
+
+function draw_shaky_centered_text(s, color)
+  local ox = rnd(3) - 1.5
+  local oy = rnd(3) - 1.5
+  print(s, 64 - (#s * 2) + ox, 64 + oy, color or 8)
+end
+function start_pre_game_sequence()
+  pre_game_state = 'countdown'
+  pre_game_start_t = time()
+end
+
+function update_pre_game_sequence()
+  if pre_game_state == 'countdown' then
+    local elapsed = time() - pre_game_start_t
+    local countdown_duration = #pre_game_sequence
+    if elapsed >= countdown_duration then
+      pre_game_state = 'panic'
+      pre_game_start_t = time()
+    end
+    return true
+  elseif pre_game_state == 'panic' then
+    if (time() - pre_game_start_t) >= 1 then
+      pre_game_state = 'done'
+      return false
+    end
+    return true
+  elseif pre_game_state == 'done' or pre_game_state == nil then
+    return false
+  end
+  return false
+end
+
+function draw_pre_game_text()
+  if pre_game_state == 'countdown' then
+    draw_centered_sequence(pre_game_sequence, pre_game_start_t, 7)
+  elseif pre_game_state == 'panic' then
+    draw_shaky_centered_text("panic!", 8)
+  end
+end
+
 ---@diagnostic disable: undefined-global
--- p8panic - A game of tactical geometry
 
-player_manager = {} -- Initialize player_manager globally here
-STASH_SIZE = 6 -- Default stash size, configurable in menu (min 3, max 10)
-PLAYER_COUNT = 2 -- Default number of players, configurable in menu (min 2, max 4)
-create_piece = nil -- Initialize create_piece globally here (will be defined by 3.piece.lua now)
-pieces = {} -- Initialize pieces globally here
-LASER_LEN = 60 -- Initialize LASER_LEN globally here
--- Player count is now configurable via PLAYER_COUNT in menu
-cursors = {} -- Initialize cursors globally here
-CAPTURE_RADIUS_SQUARED = 64 -- Initialize CAPTURE_RADIUS_SQUARED globally here
+player_manager = {}
+STASH_SIZE = 6
+PLAYER_COUNT = 2
+create_piece = nil
+pieces = {}
+LASER_LEN = 60
+cursors = {}
+CAPTURE_RADIUS_SQUARED = 64
 
--- Declare these here, they will be assigned in _init()
 original_update_game_logic_func = nil
 original_update_controls_func = nil
 
--------------------------------------------
--- Helpers & Global Constants/Variables --
--------------------------------------------
---#globals player_manager create_piece pieces LASER_LEN PLAYER_COUNT cursors CAPTURE_RADIUS_SQUARED
---#globals ray_segment_intersect attempt_capture -- Core helpers defined in this file
---#globals update_controls score_pieces place_piece legal_placement create_cursor -- Functions from modules
---#globals internal_update_game_logic original_update_game_logic_func original_update_controls_func
---#globals GAME_STATE_MENU GAME_STATE_PLAYING current_game_state
---#globals GAME_TIMER GAME_TIMER_MAX
-
--- Game timer constants
-GAME_TIMER_MAX = 180 -- 180-second game rounds
+ROUND_TIME_MIN = 120
+ROUND_TIME_MAX = 600
+ROUND_TIME = 180
+GAME_TIMER_MAX = ROUND_TIME
 GAME_TIMER = GAME_TIMER_MAX
-
--- CAPTURE_RADIUS_SQUARED = 64 -- (8*8) For capture proximity check -- Already defined above
 
 function point_in_polygon(px, py, vertices)
   local inside = false
@@ -45,19 +96,10 @@ function point_in_polygon(px, py, vertices)
   return inside
 end
 
--- Global game state variables
--- pieces = {} -- Already defined above
--- Default number of players is defined as PLAYER_COUNT = 2 above
--- LASER_LEN = 60          -- Maximum laser beam length -- Already defined above
-
--- Cached math functions
 local cos, sin = cos, sin
 local max, min = max, min
 local sqrt, abs = sqrt, abs
 
-------------------------------------------
--- Core Helper Functions (defined before includes that might use them)
-------------------------------------------
 function ray_segment_intersect(ray_ox, ray_oy, ray_dx, ray_dy,
                                seg_x1, seg_y1, seg_x2, seg_y2)
   local s_dx = seg_x2 - seg_x1
@@ -74,16 +116,14 @@ function ray_segment_intersect(ray_ox, ray_oy, ray_dx, ray_dy,
   return nil, nil, nil
 end
 
--- Moved attempt_capture here, before includes that use it (e.g., 3.controls.lua)
 function attempt_capture(player_obj, cursor)
   local player_id = player_obj.id
   for _, piece_obj in ipairs(pieces) do
-    -- Check for both overcharged defenders and attackers owned by the player
     if piece_obj.owner_id == player_id and piece_obj.state == "overcharged" then
       if piece_obj.targeting_attackers then
-        for attacker_idx = #piece_obj.targeting_attackers, 1, -1 do -- Iterate backwards for safe removal
+        for attacker_idx = #piece_obj.targeting_attackers, 1, -1 do
           local attacker_to_capture = piece_obj.targeting_attackers[attacker_idx]
-          if attacker_to_capture then -- Ensure attacker still exists
+          if attacker_to_capture then
             local dist_x = (cursor.x + 4) - attacker_to_capture.position.x
             local dist_y = (cursor.y + 4) - attacker_to_capture.position.y
             
@@ -91,7 +131,7 @@ function attempt_capture(player_obj, cursor)
               local captured_color = attacker_to_capture:get_color()
               player_obj:add_captured_piece(captured_color)
               
-              if del(pieces, attacker_to_capture) then -- Remove from global pieces
+              if del(pieces, attacker_to_capture) then
                 printh("P" .. player_id .. " captured attacker (color: " .. captured_color .. ")")
                 deli(piece_obj.targeting_attackers, attacker_idx) 
                 return true 
@@ -105,23 +145,15 @@ function attempt_capture(player_obj, cursor)
   return false
 end
 
--- All modules are loaded via Pico-8 tabs; remove #include directives
-
--------------------------------------------
--- Multi-Cursor Support (one per player) --
--------------------------------------------
--- cursors table is initialized at the top
-
--- Initialize cursors for N players; they spawn in different screen corners.
 function init_cursors(num_players)
   local all_possible_spawn_points = {
-    {x = 18, y = 18},                -- P1: just outside top-left UI
-    {x = 128 - 18 - 1, y = 18},      -- P2: just outside top-right UI
-    {x = 18, y = 128 - 18 - 1},      -- P3: just outside bottom-left UI
-    {x = 128 - 18 - 1, y = 128 - 18 - 1} -- P4: just outside bottom-right UI
+    {x = 18, y = 18},
+    {x = 128 - 18 - 1, y = 18},
+    {x = 18, y = 128 - 18 - 1},
+    {x = 128 - 18 - 1, y = 128 - 18 - 1}
   }
 
-  cursors = {} -- Clear existing cursors before re-initializing
+  cursors = {}
 
   for i = 1, num_players do
     local sp
@@ -129,66 +161,74 @@ function init_cursors(num_players)
       sp = all_possible_spawn_points[i]
     else
       printh("Warning: No spawn point defined for P" .. i .. ". Defaulting.")
-      sp = {x = 4 + (i-1)*10, y = 4} -- Simple fallback
+      sp = {x = 4 + (i-1)*10, y = 4}
     end
 
-    -- Call create_cursor from 7.cursor.lua to create the cursor object
-    -- This object will have the correct draw method.
     if create_cursor then
       cursors[i] = create_cursor(i, sp.x, sp.y)
-      -- Initialize other properties if create_cursor doesn't set them all,
-      -- though ideally create_cursor should handle all necessary defaults.
-      -- For example, if create_cursor doesn't set spawn_x/spawn_y:
-      -- if cursors[i] then
-      --   cursors[i].spawn_x = sp.x
-      --   cursors[i].spawn_y = sp.y
-      -- end
     else
       printh("ERROR: create_cursor function is not defined! Cannot initialize cursors properly.")
-      -- Fallback to basic table if create_cursor is missing (will lack the advanced draw method)
       cursors[i] = {
         id = i,
         x = sp.x, y = sp.y,
         spawn_x = sp.x, spawn_y = sp.y,
         control_state = 0,
         pending_type = "defender",
-        pending_color = 7, -- Simplified fallback
+        pending_color = 7,
         pending_orientation = 0,
         return_cooldown = 0,
         color_select_idx = 1,
-        draw = function() printh("Fallback cursor draw for P"..i) end -- Basic fallback draw
+        draw = function() printh("Fallback cursor draw for P"..i) end
       }
     end
   end
 end
 
--- Game States
 GAME_STATE_MENU = 0
 GAME_STATE_PLAYING = 1
--- GAME_STATE_GAME_OVER = 2 -- Placeholder for future
+GAME_STATE_GAMEOVER = 2
+GAME_STATE_TUTORIAL = 3 -- New game state
 
-current_game_state = GAME_STATE_MENU -- Start in the menu
+current_game_state = GAME_STATE_MENU
 
--- Forward declare for state-specific update/draw functions
--- local original_update_game_logic_func -- Now defined after includes
--- local original_update_controls_func -- Now defined after includes
+tutorial_page_current = 1
+tutorial_pages_data = {}
 
--------------------------------------------
--- Game Logic & Main Loop Integration    --
--------------------------------------------
--- Define the internal game logic update function
+function init_tutorial_data()
+  tutorial_pages_data = {
+    { -- Page 1
+      lines = {"TUTORIAL: PAGE 1", "WELCOME TO P8PANIC!", "PLACE DEFENDERS (SQUARES)", "AND ATTACKERS (TRIANGLES)."},
+      pieces_to_draw = {
+        {type="defender", position={x=30,y=80}, orientation=0, color=12, is_ghost=true},
+        {type="attacker", position={x=98,y=80}, orientation=0.25, color=8, is_ghost=true}
+      }
+    },
+    { -- Page 2
+      lines = {"TUTORIAL: PAGE 2", "ATTACKERS SHOOT LASERS.", "DEFENDERS SCORE IF NOT HIT,", "OR HIT BY ONLY ONE LASER."},
+      pieces_to_draw = {
+        {type="attacker", position={x=64,y=60}, orientation=0, color=10, is_ghost=true},
+        {type="defender", position={x=64,y=90}, orientation=0, color=12, is_ghost=true}
+      }
+    },
+    { -- Page 3
+      lines = {"TUTORIAL: PAGE 3", "OVERCHARGED DEFENDERS", "(HIT BY 3+ LASERS)", "CAN CAPTURE ENEMY ATTACKERS."},
+      pieces_to_draw = {
+         {type="defender", position={x=64,y=70}, orientation=0, color=11, is_ghost=true, state="overcharged"}, -- Assuming state influences appearance or for context
+         {type="attacker", position={x=64,y=40}, orientation=0.5, color=9, is_ghost=true}
+      }
+    }
+  }
+end
+
 function internal_update_game_logic()
-  -- Reset defender states before scoring
   for _, p_item in ipairs(pieces) do
     if p_item.type == "defender" then
       p_item.hits = 0
       p_item.targeting_attackers = {}
-      -- p_item.state = "neutral" -- REMOVED: State will persist or be set by creation/scoring
-      p_item.captured_flag = false -- Reset captured flag
+      p_item.captured_flag = false
     end
   end
   
-  -- Call the scoring function from 2.scoring.lua
   if score_pieces then 
     score_pieces() 
   else 
@@ -196,46 +236,49 @@ function internal_update_game_logic()
   end
 end
 
+
 function go_to_state(new_state)
   if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
-    local current_game_stash_size = STASH_SIZE -- Capture STASH_SIZE once for this game start
-    printh("GO_TO_STATE: CAPTURED STASH_SIZE="..current_game_stash_size) -- DEBUG
+    local current_game_stash_size = STASH_SIZE
+    printh("GO_TO_STATE: CAPTURED STASH_SIZE="..current_game_stash_size)
 
-    pieces = {} -- Clear existing pieces
+    pieces = {}
     
-    -- Initialize players based on menu selection
     player_manager.init_players(PLAYER_COUNT)
     
-    init_cursors(player_manager.get_player_count()) -- Cursors are initialized on game start
-    GAME_TIMER = GAME_TIMER_MAX -- Reset game timer
+    init_cursors(player_manager.get_player_count())
+    start_pre_game_sequence()
+    GAME_TIMER_MAX = ROUND_TIME
+    GAME_TIMER = GAME_TIMER_MAX
     
     for i=1, player_manager.get_player_count() do
       local p = player_manager.get_player(i)
       if p then 
         p.score = 0
         p.stash = {} 
-        -- Use the locally captured stash size
         p.stash[p:get_color()] = current_game_stash_size 
-        printh("P"..i.." STASH INIT: C="..p:get_color().." SZ="..current_game_stash_size.." CT="..p.stash[p:get_color()]) -- DEBUG
+        printh("P"..i.." STASH INIT: C="..p:get_color().." SZ="..current_game_stash_size.." CT="..p.stash[p:get_color()])
       end
     end
     if original_update_game_logic_func then original_update_game_logic_func() end
+  elseif new_state == GAME_STATE_TUTORIAL then
+    init_tutorial_data() -- Initialize tutorial content
+    tutorial_page_current = 1
   end
   current_game_state = new_state
 end
 
 
 function _init()
+  menuitem(1, "Finish Game", finish_game_menuitem)
   if not player_manager then
-    printh("ERROR: player_manager is NIL in _init()", true) -- Debug print
+    printh("ERROR: player_manager is NIL in _init()", true)
   end
   
-  -- Assign function pointers here, after all tabs are loaded
   if internal_update_game_logic then
     original_update_game_logic_func = internal_update_game_logic
   else
     printh("ERROR: internal_update_game_logic is NIL in _init!", true)
-    -- Define a fallback internal update function if needed
     original_update_game_logic_func = function() end
   end
   
@@ -243,176 +286,318 @@ function _init()
     original_update_controls_func = update_controls
   else
     printh("ERROR: update_controls is NIL in _init!", true)
-    -- Define a fallback controls function if needed
     original_update_controls_func = function() end
   end
   
-  -- Check if score_pieces is available (no need to assign it)
   if not _ENV.score_pieces then
      printh("ERROR: score_pieces is NIL in _init!", true)
   end
 
-  -- Initialize menu variables
-  menu_selection = 1 -- Default to first menu option (stash size)
+  menu_selection = 1
   
-  -- Start in the menu state
   current_game_state = GAME_STATE_MENU
   
   if not player_manager.get_player_count then
      printh("ERROR: player_manager.get_player_count is NIL in _init()", true)
   end
-  -- Cursors and game pieces will be initialized when transitioning from menu to playing state
+  -- init_starfield() -- Initialize stars once
+  init_tutorial_data() -- Initialize tutorial data once at start
 end
 
 
+
 function update_menu_state()
-  -- Menu has two options: stash size and player count
-  -- Use up/down to switch between options, left/right to adjust values
-  
-  -- Track which menu item is selected (1=stash size, 2=player count)
   if not menu_selection then menu_selection = 1 end
-  
-  -- Navigate between menu options with up/down
+
   if btnp(⬆️) then
     menu_selection = max(1, menu_selection - 1)
   elseif btnp(⬇️) then
-    menu_selection = min(2, menu_selection + 1)
+    menu_selection = min(4, menu_selection + 1) -- Increased to 4 for "How to Play"
   end
-  
-  -- Adjust the selected option with left/right
+
   if menu_selection == 1 then
-    -- Adjust stash size
     if btnp(⬅️) then
       STASH_SIZE = max(3, STASH_SIZE - 1)
     elseif btnp(➡️) then
       STASH_SIZE = min(10, STASH_SIZE + 1)
     end
   elseif menu_selection == 2 then
-    -- Adjust player count
     if btnp(⬅️) then
       PLAYER_COUNT = max(2, PLAYER_COUNT - 1)
     elseif btnp(➡️) then
       PLAYER_COUNT = min(4, PLAYER_COUNT + 1)
     end
+  elseif menu_selection == 3 then
+    if btnp(⬅️) then
+      ROUND_TIME = max(ROUND_TIME_MIN, ROUND_TIME - 30)
+    elseif btnp(➡️) then
+      ROUND_TIME = min(ROUND_TIME_MAX, ROUND_TIME + 30)
+    end
+  elseif menu_selection == 4 then -- How to Play
+    -- No options to change for "How to Play" with L/R
   end
-  
-  -- Start game
+
   if btnp(❎) or btnp(🅾️) then
-    go_to_state(GAME_STATE_PLAYING)
+    if menu_selection == 4 then
+      go_to_state(GAME_STATE_TUTORIAL)
+    else
+      go_to_state(GAME_STATE_PLAYING)
+    end
   end
 end
 
+
 function update_playing_state()
-  -- Update game controls
-  if original_update_controls_func then 
-    original_update_controls_func() 
-  else 
-    printh("Error: original_update_controls_func is nil in update_playing_state!") 
-  end
-  
-  -- Update game logic - carefully wrapped to avoid errors
-  if original_update_game_logic_func then
-    if type(original_update_game_logic_func) == "function" then
-      original_update_game_logic_func()
-    else
-      printh("Error: original_update_game_logic_func is not a function in update_playing_state!")
+  local pre_game_active = update_pre_game_sequence()
+
+  if pre_game_state ~= 'countdown' then
+    if original_update_controls_func then 
+      original_update_controls_func() 
+    else 
+      printh("Error: original_update_controls_func is nil in update_playing_state!") 
     end
-  else 
-    printh("Error: original_update_game_logic_func is nil in update_playing_state!") 
+
+    if original_update_game_logic_func then
+      if type(original_update_game_logic_func) == "function" then
+        original_update_game_logic_func()
+      else
+        printh("Error: original_update_game_logic_func is not a function in update_playing_state!")
+      end
+    else 
+      printh("Error: original_update_game_logic_func is nil in update_playing_state!") 
+    end
   end
-  
-  -- Update game timer (decrease by 1/30th of a second each frame)
-  GAME_TIMER = max(0, GAME_TIMER - (1/30))
-  
-  -- Check for game over condition when timer runs out
-  if GAME_TIMER <= 0 then
-    -- TODO: Implement game over state transition
-    -- For now, just restart the timer
-    GAME_TIMER = GAME_TIMER_MAX
+
+  if not pre_game_active then
+    GAME_TIMER = max(0, GAME_TIMER - (1/30))
+  end
+
+  if GAME_TIMER <= 0 and current_game_state == GAME_STATE_PLAYING and not pre_game_active then
+    if score_pieces then score_pieces() end
+    current_game_state = GAME_STATE_GAMEOVER
+    GAME_TIMER = 0
+    gameover_timer = 2
   end
 end
+
 
 function _update()
   if current_game_state == GAME_STATE_MENU then
     update_menu_state()
   elseif current_game_state == GAME_STATE_PLAYING then
-    update_playing_state() -- Call the playing state update function
+    update_playing_state()
+  elseif current_game_state == GAME_STATE_GAMEOVER then
+    update_gameover_state()
+  elseif current_game_state == GAME_STATE_TUTORIAL then -- New state update
+    update_tutorial_state()
+  end
+  -- update_starfield() -- Update starfield regardless of game state
+end
+
+function update_tutorial_state()
+  if btnp(❎) then
+    tutorial_page_current += 1
+    if tutorial_page_current > #tutorial_pages_data then
+      tutorial_page_current = 1 -- Loop back to first page
+    end
+  elseif btnp(🅾️) then
+    go_to_state(GAME_STATE_MENU)
+  end
+end
+
+function update_gameover_state()
+  if gameover_timer and gameover_timer > 0 then
+    gameover_timer = max(0, gameover_timer - (1/30))
+    return
+  end
+  if btnp(❎) or btnp(🅾️) then
+    go_to_state(GAME_STATE_MENU)
   end
 end
 
 
+stars = {}
+
+function init_starfield()
+  stars = {}
+  for i = 1, 20 do
+    add(stars, {
+      x = rnd(128),
+      y = rnd(128),
+      speed = rnd(0.01) + 0.1,
+      size = flr(rnd(2)) + 1,
+      color = flr(rnd(3)) + 5
+    })
+  end
+end
+
+function update_starfield()
+  for star in all(stars) do
+    star.y += star.speed
+    if star.y > 128 then
+      star.y = -star.size
+      star.x = rnd(128)
+    end
+  end
+end
+
+function draw_starfield()
+  for star in all(stars) do
+    if star.size == 1 then
+      pset(star.x, star.y, star.color)
+    else
+      circfill(star.x, star.y, star.size - 1, star.color)
+    end
+  end
+end
 
 function draw_menu_state()
-  -- main title and prompt
-  print("P8PANIC", 50, 40, 7)
-  print("PRESS X OR O", 40, 54, 8)
-  print("TO START", 50, 62, 8)
-  -- ensure menu_selection
+  print("P8PANIC", 50, 30, 7) -- Adjusted y for new option
+  print("PRESS X OR O", 40, 44, 8)
+  print("TO START", 50, 52, 8)
   if not menu_selection then menu_selection = 1 end
-  -- highlight colors
   local stash_color = (menu_selection == 1) and 7 or 11
   local player_color = (menu_selection == 2) and 7 or 11
-  -- stash size option
-  print((menu_selection == 1 and ">" or " ").." STASH SIZE: "..STASH_SIZE,
-        28, 80, stash_color)
-  -- player count option
-  print((menu_selection == 2 and ">" or " ").." PLAYERS: "..PLAYER_COUNT,
-        28, 90, player_color)
-  -- controls help icons
-  print("\x8e/\x91: ADJUST \x83/\x82: SELECT", 16, 110, 6) -- controls help icons
+  local timer_color = (menu_selection == 3) and 7 or 11
+  local tutorial_color = (menu_selection == 4) and 7 or 11 -- Color for "How to Play"
+
+  print((menu_selection == 1 and ">" or " ").." STASH SIZE: "..STASH_SIZE, 28, 70, stash_color) -- Adjusted y
+  print((menu_selection == 2 and ">" or " ").." PLAYERS: "..PLAYER_COUNT, 28, 80, player_color) -- Adjusted y
+  local minstr = flr(ROUND_TIME/60)
+  local secstr = (ROUND_TIME%60 < 10 and "0" or "")..(ROUND_TIME%60)
+  print((menu_selection == 3 and ">" or " ").." ROUND TIME: "..minstr..":"..secstr, 28, 90, timer_color) -- Adjusted y
+  print((menu_selection == 4 and ">" or " ").." HOW TO PLAY", 28, 100, tutorial_color) -- New menu item
 end
 
 function draw_playing_state_elements()
-  -- Draw game timer in MM:SS
-  local secs = flr(GAME_TIMER)
-  local timer_str = flr(secs/60) .. ":" .. (secs%60 < 10 and "0" or "") .. (secs%60)
-  print(timer_str, 62 - #timer_str*2, 2, GAME_TIMER < 30 and 8 or 7)
-  -- Draw pieces and cursors
-  for _,o in ipairs(pieces) do if o.draw then o:draw() end end
-  for _,c in ipairs(cursors) do if c.draw then c:draw() end end
-  -- Draw stash bars for each player
-  local m,fw,fh,bh,bw,bs,nb = 2,4,5,8,2,1,4
-  for i=1,player_manager.get_player_count() do
-    local p = player_manager.get_player(i)
-    if p then
-      local s = tostr(p:get_score())
-      local sw = #s*fw
-      local tw = nb*bw + (nb-1)*bs
-      local block_w = max(sw,tw)
-      local ax = (i==2 or i==4) and (128-m-block_w) or m
-      local ay = (i>=3) and (128-m-(fh+2+bh)) or m
-      -- score
-      print(s, ax + ((block_w-sw) * ((i==2 or i==4) and 1 or 0)), ay, p:get_color())
-      -- bars
-      local bx = (i==2 or i==4) and (ax + block_w - tw) or ax
-      local by = ay + fh + 1
-      for j=1,nb do
-        local col = player_manager.colors[j] or 0
-        local cnt = p.stash[col] or 0
-        local h = flr(cnt / STASH_SIZE * bh)
-        h = mid(0,h,bh)
-        if i==1 or i==2 then
-          -- Top players: bars grow down from just below score
-          if h>0 then rectfill(bx,by,bx+bw-1,by+h-1,col)
-          else line(bx,by,bx+bw-1,by,1) end
-        else
-          -- Bottom players: bars grow up from bottom as before
-          if h>0 then rectfill(bx,by+(bh-h),bx+bw-1,by+bh-1,col)
-          else line(bx,by+bh-1,bx+bw-1,by+bh-1,1) end
+  if pre_game_state == 'countdown' or pre_game_state == 'panic' then
+    draw_pre_game_text()
+    for _,c in ipairs(cursors) do if c.draw then c:draw() end end
+    if pre_game_state == 'countdown' then
+      return
+    end
+  end
+
+  if pre_game_state == 'done' or pre_game_state == 'panic' or pre_game_state == nil then
+    local secs = flr(GAME_TIMER)
+    local timer_str = flr(secs/60) .. ":" .. (secs%60 < 10 and "0" or "") .. (secs%60)
+    print(timer_str, 62 - #timer_str*2, 2, GAME_TIMER < 30 and 8 or 7)
+    for _,o in ipairs(pieces) do if o.draw then o:draw() end end
+    for _,c in ipairs(cursors) do if c.draw then c:draw() end end
+    local m,fw,fh,bh,bw,bs,nb = 2,4,5,8,2,1,4
+    for i=1,player_manager.get_player_count() do
+      local p = player_manager.get_player(i)
+      if p then
+        local s = tostr(p:get_score())
+        local sw = #s*fw
+        local tw = nb*bw + (nb-1)*bs
+        local block_w = max(sw,tw)
+        local ax = (i==2 or i==4) and (128-m-block_w) or m
+        local ay = (i>=3) and (128-m-(fh+2+bh)) or m
+        print(s, ax + ((block_w-sw) * ((i==2 or i==4) and 1 or 0)), ay, p:get_color())
+        local bx = (i==2 or i==4) and (ax + block_w - tw) or ax
+        local by = ay + fh + 1
+        for j=1,nb do
+          local col = player_manager.colors[j] or 0
+          local cnt = p.stash[col] or 0
+          local h = flr(cnt / STASH_SIZE * bh)
+          h = mid(0,h,bh)
+          if i==1 or i==2 then
+            if h>0 then rectfill(bx,by,bx+bw-1,by+h-1,col)
+            else line(bx,by,bx+bw-1,by,1) end
+          else
+            if h>0 then rectfill(bx,by+(bh-h),bx+bw-1,by+bh-1,col)
+            else line(bx,by+bh-1,bx+bw-1,by+bh-1,1) end
+          end
+          bx += bw + bs
         end
-        bx += bw + bs
       end
     end
   end
 end
 
+
+function draw_gameover_state()
+  cls(0)
+  map(0, 0, 0, 0, 16, 16, 0)
+  draw_playing_state_elements()
+  print("FINISH!", 52, 60, 7)
+  if not gameover_timer or gameover_timer <= 0 then
+    local sorted_players = {}
+    for i = 1, player_manager.get_player_count() do
+      local p = player_manager.get_player(i)
+      if p then
+        add(sorted_players, {player = p, id = i})
+      end
+    end
+    for i = 1, #sorted_players - 1 do
+      for j = i + 1, #sorted_players do
+        if sorted_players[j].player:get_score() > sorted_players[i].player:get_score() then
+          local temp = sorted_players[i]
+          sorted_players[i] = sorted_players[j]
+          sorted_players[j] = temp
+        end
+      end
+    end
+    for i = 1, #sorted_players do
+      local p = sorted_players[i].player
+      local pid = sorted_players[i].id
+      local score_text = "P" .. pid .. ": " .. p:get_score()
+      print(score_text, 64 - #score_text * 2, 70 + i * 8, p:get_color())
+    end
+    print("Press X or O to return", 28, 100, 6)
+  end
+end
+
+function draw_tutorial_state()
+  cls(0)
+  -- draw_starfield()
+  map(0, 0, 0, 0, 16, 16,0) -- Optional: draw game map background
+
+  if tutorial_pages_data[tutorial_page_current] then
+    local page_data = tutorial_pages_data[tutorial_page_current]
+
+    -- Draw pieces for the current tutorial page
+    if page_data.pieces_to_draw and create_piece then
+      for _, piece_params in ipairs(page_data.pieces_to_draw) do
+        -- Ensure a color is set, defaulting if necessary
+        local params_with_defaults = {}
+        for k,v in pairs(piece_params) do params_with_defaults[k]=v end
+        params_with_defaults.color = piece_params.color or 7
+        params_with_defaults.is_ghost = piece_params.is_ghost -- Keep ghost status if defined
+
+        local temp_piece = create_piece(params_with_defaults)
+        if temp_piece and temp_piece.draw then
+          temp_piece:draw()
+        end
+      end
+    end
+
+    -- Draw text for the current tutorial page
+    if page_data.lines then
+      local start_y = 20 -- Starting y position for text
+      for i, line_text in ipairs(page_data.lines) do
+        print(line_text, 64 - (#line_text * 2), start_y + (i-1)*8, 7)
+      end
+    end
+  end
+
+  -- Navigation hints
+  print("❎:NEXT PAGE", 4, 118, 7)
+  print("🅾️:MENU", 88, 118, 7)
+end
+
 function _draw()
   cls(0)
-  -- Draw background UI map
+  -- draw_starfield() -- Assuming draw_starfield is defined elsewhere
   map(0, 0, 0, 0, 16, 16,0)
   if current_game_state == GAME_STATE_MENU then
     draw_menu_state()
   elseif current_game_state == GAME_STATE_PLAYING then
     draw_playing_state_elements()
+  elseif current_game_state == GAME_STATE_GAMEOVER then
+    draw_gameover_state()
+  elseif current_game_state == GAME_STATE_TUTORIAL then -- New state draw
+    draw_tutorial_state()
   end
 end
