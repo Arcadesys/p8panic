@@ -300,7 +300,7 @@ function _init()
   if not player_manager.get_player_count then
      printh("ERROR: player_manager.get_player_count is NIL in _init()", true)
   end
-  init_starfield() -- Initialize stars once
+  -- init_starfield() -- Initialize stars once
   init_tutorial_data() -- Initialize tutorial data once at start
 end
 
@@ -391,7 +391,7 @@ function _update()
   elseif current_game_state == GAME_STATE_TUTORIAL then -- New state update
     update_tutorial_state()
   end
-  update_starfield() -- Update starfield regardless of game state
+  -- update_starfield() -- Update starfield regardless of game state
 end
 
 function update_tutorial_state()
@@ -551,7 +551,7 @@ end
 
 function draw_tutorial_state()
   cls(0)
-  draw_starfield()
+  -- draw_starfield()
   map(0, 0, 0, 0, 16, 16,0) -- Optional: draw game map background
 
   if tutorial_pages_data[tutorial_page_current] then
@@ -589,7 +589,7 @@ end
 
 function _draw()
   cls(0)
-  draw_starfield() -- Assuming draw_starfield is defined elsewhere
+  -- draw_starfield() -- Assuming draw_starfield is defined elsewhere
   map(0, 0, 0, 0, 16, 16,0)
   if current_game_state == GAME_STATE_MENU then
     draw_menu_state()
