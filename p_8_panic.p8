@@ -1074,6 +1074,21 @@ function Defender:draw()
     line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, color)
     line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, color)
   end
+
+  -- draw status indicator in the center
+  local cx = self.position.x
+  local cy = self.position.y
+  local status_col
+  if self.state == "successful" then
+    status_col = 11 -- green
+  elseif self.state == "unsuccessful" then
+    status_col = 8 -- red
+  elseif self.state == "overcharged" then
+    status_col = 13 -- purple
+  else
+    status_col = 5 -- neutral/gray if state is missing
+  end
+  circfill(cx, cy, 2, status_col)
 end
 
 function create_piece(params)
