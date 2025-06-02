@@ -196,28 +196,65 @@ tutorial_pages_data = {}
 
 function init_tutorial_data()
   tutorial_pages_data = {
-    { -- Page 1
-      lines = {"TUTORIAL: PAGE 1", "WELCOME TO P8PANIC!", "PLACE DEFENDERS (SQUARES)", "AND ATTACKERS (TRIANGLES)."},
-      pieces_to_draw = {
-        {type="defender", position={x=30,y=80}, orientation=0, color=12, is_ghost=true},
-        {type="attacker", position={x=98,y=80}, orientation=0.25, color=8, is_ghost=true}
+    {
+      lines = {"TUTORIAL: PAGE 1", "welcome to pico panic!", "PLACE DEFENDERS (SQUARES)", "AND ATTACKERS (TRIANGLES)."},
+      pieces = {
+        {type="defender", x=30, y=80, orientation=0, color=12},
+        {type="attacker", x=98, y=80, orientation=0.25, color=8}
       }
     },
-    { -- Page 2
+    {
       lines = {"TUTORIAL: PAGE 2", "ATTACKERS SHOOT LASERS.", "DEFENDERS SCORE IF NOT HIT,", "OR HIT BY ONLY ONE LASER."},
-      pieces_to_draw = {
-        {type="attacker", position={x=64,y=60}, orientation=0, color=10, is_ghost=true},
-        {type="defender", position={x=64,y=90}, orientation=0, color=12, is_ghost=true}
+      pieces = {
+        {type="attacker", x=20, y=70, orientation=0, color=10},
+        {type="defender", x=40, y=70, orientation=0, color=12},
+        {type="defender", x=80, y=70, orientation=0, color=14, state="hit"},
+        {type="attacker", x=100, y=70, orientation=0.5, color=9},
+        {type="attacker", x=80, y=90, orientation=0.25, color=11}
+      } 
+    },  
+    {
+      lines = {"TUTORIAL: PAGE 3", "OVERCHARGED DEFENDERS", "(HIT BY 3+ LASERS)", "CAN CAPTURE ENEMY ATTACKERS."},
+      pieces = {
+         {type="defender", x=64, y=70, orientation=0, color=11, state="overcharged"},
+         {type="attacker", x=108, y=70, orientation=0.5, color=9},
+         {type="attacker", x=90, y=90, orientation=0.4, color=10},
+         {type="attacker", x=40, y=70, orientation=2, color=8},
       }
     },
-    { -- Page 3
-      lines = {"TUTORIAL: PAGE 3", "OVERCHARGED DEFENDERS", "(HIT BY 3+ LASERS)", "CAN CAPTURE ENEMY ATTACKERS."},
-      pieces_to_draw = {
-         {type="defender", position={x=64,y=70}, orientation=0, color=11, is_ghost=true, state="overcharged"}, -- Assuming state influences appearance or for context
-         {type="attacker", position={x=64,y=40}, orientation=0.5, color=9, is_ghost=true}
+    {
+      lines = {"TUTORIAL: PAGE 4", "use your prisoners", "to block enemy attacks!"},
+      pieces = {
+         {type="defender", x=64, y=70, orientation=0, color=11, state="overcharged"},
+         {type="attacker", x=108, y=70, orientation=0.5, color=9},
+         {type="attacker", x=90, y=90, orientation=0.4, color=10},
+         {type="defender", x=80, y=70, orientation=2, color=8},
       }
+    },
+    {
+      lines = {"TUTORIAL: PAGE 5", "CONTROLS:", "x: PLACE PIECE", "o: switch mode","udlr: MOVE CURSOR", "while placing", "lr rotate", "ud select piece", "MOST POINTS WINS. GOOD LUCK!"},
+      pieces = {}
     }
-  }
+  } 
+end
+
+function setup_tutorial_page(page)
+  -- Clear all pieces
+  pieces = {}
+  -- Place real pieces for this page
+  if page.pieces then
+    for _, def in ipairs(page.pieces) do
+      local params = {}
+      for k,v in pairs(def) do params[k]=v end
+      -- Map x/y to position if needed by create_piece
+      params.position = {x=params.x, y=params.y}
+      params.x = nil params.y = nil
+      local obj = create_piece(params)
+      if obj then add(pieces, obj) end
+    end
+  end
+  -- Run normal scoring/laser logic
+  if score_pieces then score_pieces() end
 end
 
 function internal_update_game_logic()
@@ -264,6 +301,7 @@ function go_to_state(new_state)
   elseif new_state == GAME_STATE_TUTORIAL then
     init_tutorial_data() -- Initialize tutorial content
     tutorial_page_current = 1
+    setup_tutorial_page(tutorial_pages_data[1])
   end
   current_game_state = new_state
 end
@@ -400,6 +438,7 @@ function update_tutorial_state()
     if tutorial_page_current > #tutorial_pages_data then
       tutorial_page_current = 1 -- Loop back to first page
     end
+    setup_tutorial_page(tutorial_pages_data[tutorial_page_current])
   elseif btnp(🅾️) then
     go_to_state(GAME_STATE_MENU)
   end
@@ -461,12 +500,12 @@ function draw_menu_state()
   local timer_color = (menu_selection == 3) and 7 or 11
   local tutorial_color = (menu_selection == 4) and 7 or 11 -- Color for "How to Play"
 
-  print((menu_selection == 1 and ">" or " ").." STASH SIZE: "..STASH_SIZE, 28, 70, stash_color) -- Adjusted y
-  print((menu_selection == 2 and ">" or " ").." PLAYERS: "..PLAYER_COUNT, 28, 80, player_color) -- Adjusted y
+  print("STASH SIZE: "..STASH_SIZE, 28, 70, stash_color) -- Adjusted y
+  print("PLAYERS: "..PLAYER_COUNT, 28, 80, player_color) -- Adjusted y
   local minstr = flr(ROUND_TIME/60)
   local secstr = (ROUND_TIME%60 < 10 and "0" or "")..(ROUND_TIME%60)
-  print((menu_selection == 3 and ">" or " ").." ROUND TIME: "..minstr..":"..secstr, 28, 90, timer_color) -- Adjusted y
-  print((menu_selection == 4 and ">" or " ").." HOW TO PLAY", 28, 100, tutorial_color) -- New menu item
+  print("ROUND TIME: "..minstr..":"..secstr, 28, 90, timer_color) -- Adjusted y
+  print("HOW TO PLAY", 28, 100, tutorial_color) -- New menu item
 end
 
 function draw_playing_state_elements()
@@ -551,34 +590,17 @@ end
 
 function draw_tutorial_state()
   cls(0)
-  -- draw_starfield()
-  map(0, 0, 0, 0, 16, 16,0) -- Optional: draw game map background
+  map(0, 0, 0, 0, 16, 16,0)
 
-  if tutorial_pages_data[tutorial_page_current] then
-    local page_data = tutorial_pages_data[tutorial_page_current]
+  -- Draw real pieces
+  for _,o in ipairs(pieces) do if o.draw then o:draw() end end
 
-    -- Draw pieces for the current tutorial page
-    if page_data.pieces_to_draw and create_piece then
-      for _, piece_params in ipairs(page_data.pieces_to_draw) do
-        -- Ensure a color is set, defaulting if necessary
-        local params_with_defaults = {}
-        for k,v in pairs(piece_params) do params_with_defaults[k]=v end
-        params_with_defaults.color = piece_params.color or 7
-        params_with_defaults.is_ghost = piece_params.is_ghost -- Keep ghost status if defined
-
-        local temp_piece = create_piece(params_with_defaults)
-        if temp_piece and temp_piece.draw then
-          temp_piece:draw()
-        end
-      end
-    end
-
-    -- Draw text for the current tutorial page
-    if page_data.lines then
-      local start_y = 20 -- Starting y position for text
-      for i, line_text in ipairs(page_data.lines) do
-        print(line_text, 64 - (#line_text * 2), start_y + (i-1)*8, 7)
-      end
+  -- Draw text for the current tutorial page
+  local page_data = tutorial_pages_data[tutorial_page_current]
+  if page_data and page_data.lines then
+    local start_y = 20
+    for i, line_text in ipairs(page_data.lines) do
+      print(line_text, 64 - (#line_text * 2), start_y + (i-1)*8, 7)
     end
   end
 
