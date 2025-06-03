@@ -9,7 +9,10 @@ effects = {
   capture = 59,
   bad_placement = 60,
   gameover_timer = 61,
-
+  switch_mode = 57,
+  enter_placement = 49,
+  exit_placement = 50
+}
 function finish_game_menuitem()
   if current_game_state == GAME_STATE_PLAYING then
     if score_pieces then score_pieces() end

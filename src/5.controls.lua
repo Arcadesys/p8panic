@@ -77,11 +77,30 @@ function update_controls()
     end
 
     if cur.control_state == CSTATE_MOVE_SELECT then
-      -- Continuous movement with the d-pad.
-      if btn(⬅️, i - 1) then cur.x = max(0, cur.x - cursor_speed) end
-      if btn(➡️, i - 1) then cur.x = min(cur.x + cursor_speed, 128 - 8) end
-      if btn(⬆️, i - 1) then cur.y = max(0, cur.y - cursor_speed) end
-      if btn(⬇️, i - 1) then cur.y = min(cur.y + cursor_speed, 128 - 8) end
+      -- Dual movement system: continuous (btn) at 2 pixels/frame, tap (btnp) for 1 pixel nudge
+      if btn(⬅️, i - 1) then 
+        cur.x = max(0, cur.x - cursor_speed) 
+      elseif btnp(⬅️, i - 1) then 
+        cur.x = max(0, cur.x - 1) 
+      end
+      
+      if btn(➡️, i - 1) then 
+        cur.x = min(cur.x + cursor_speed, 128 - 8) 
+      elseif btnp(➡️, i - 1) then 
+        cur.x = min(cur.x + 1, 128 - 8) 
+      end
+      
+      if btn(⬆️, i - 1) then 
+        cur.y = max(0, cur.y - cursor_speed) 
+      elseif btnp(⬆️, i - 1) then 
+        cur.y = max(0, cur.y - 1) 
+      end
+      
+      if btn(⬇️, i - 1) then 
+        cur.y = min(cur.y + cursor_speed, 128 - 8) 
+      elseif btnp(⬇️, i - 1) then 
+        cur.y = min(cur.y + 1, 128 - 8) 
+      end
 
       -- Initiate placement/rotation/capture with Button X.
       if btnp(❎, i - 1) then
@@ -92,9 +111,9 @@ function update_controls()
           end
         else -- pending_type is "defender" or "attacker"
           cur.control_state = CSTATE_ROTATE_PLACE
-          -- play enter rotation sfx
-          if effects and effects.enter_rotation then
-            sfx(effects.enter_rotation)
+          -- play enter placement sfx
+          if effects and effects.enter_placement then
+            sfx(effects.enter_placement)
           end
           -- Orientation and color will be handled in CSTATE_ROTATE_PLACE
           -- No longer resetting orientation when starting placement
@@ -191,9 +210,9 @@ function update_controls()
       -- Cancel placement with Button O.
       if btnp(🅾️, i - 1) then
         cur.control_state = CSTATE_MOVE_SELECT
-        -- play exit rotation sfx
-        if effects and effects.exit_rotation then
-          sfx(effects.exit_rotation)
+        -- play exit placement sfx
+        if effects and effects.exit_placement then
+          sfx(effects.exit_placement)
         end
       end
 
