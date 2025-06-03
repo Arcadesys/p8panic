@@ -164,11 +164,18 @@ function attempt_capture(player_obj, cursor)
 end
 
 function init_cursors(num_players)
+  -- Score/stash display box size and offset for kitty-corner spawn
+  local score_box_size = 22 -- estimated size of the score box (width/height)
+  local spawn_offset = 6    -- distance from the box, diagonally
   local all_possible_spawn_points = {
-    {x = 18, y = 18},
-    {x = 128 - 18 - 1, y = 18},
-    {x = 18, y = 128 - 18 - 1},
-    {x = 128 - 18 - 1, y = 128 - 18 - 1}
+    -- Player 1: top left, spawn down+right from UI box
+    {x = 16 + 2, y = 16 + 2},
+    -- Player 2: top right, spawn down+left from UI box
+    {x = 128 - 16 - 2 - 8, y = 16 + 2},
+    -- Player 3: bottom left, spawn up+right from UI box
+    {x = 16 + 2, y = 128 - 16 - 2 - 8},
+    -- Player 4: bottom right, spawn up+left from UI box
+    {x = 128 - score_box_size - spawn_offset, y = 128 - score_box_size - spawn_offset}
   }
 
   cursors = {}
@@ -542,7 +549,17 @@ function draw_playing_state_elements()
     print(timer_str, 62 - #timer_str*2, 2, GAME_TIMER < 30 and 8 or 7)
     for _,o in ipairs(pieces) do if o.draw then o:draw() end end
     for _,c in ipairs(cursors) do if c.draw then c:draw() end end
-    local m,fw,fh,bh,bw,bs,nb = 2,4,5,8,2,1,4
+
+    -- UI display constants for player info boxes
+    local FONT_WIDTH = 4 -- Standard Pico-8 font width per char
+    local FONT_HEIGHT = 5 -- Standard Pico-8 font character height
+    local UI_BOX_SIZE = 16 -- Each player UI box is 16x16 pixels (2x2 tiles)
+    local TEXT_TO_BARS_GAP = 1 -- Vertical gap between text line and stash bars
+
+    local STASH_BAR_WIDTH = 3 -- Width of each individual stash bar
+    local STASH_BAR_SPACING = 1 -- Horizontal space between stash bars
+    local NUM_STASH_DISPLAY_COLORS = 4 -- How many stash colors to display as bars
+
     for i=1,player_manager.get_player_count() do
       local p = player_manager.get_player(i)
       local cur = cursors[i]
@@ -556,27 +573,56 @@ function draw_playing_state_elements()
           end
         end
         local s_mode = s.." "..mode_letter
-        local sw = #s_mode*fw
-        local tw = nb*bw + (nb-1)*bs
-        local block_w = max(sw,tw)
-        local ax = (i==2 or i==4) and (128-m-block_w) or m
-        local ay = (i>=3) and (128-m-(fh+2+bh)) or m
-        print(s_mode, ax + ((block_w-sw) * ((i==2 or i==4) and 1 or 0)), ay, p:get_color())
-        local bx = (i==2 or i==4) and (ax + block_w - tw) or ax
-        local by = ay + fh + 1
-        for j=1,nb do
-          local col = player_manager.colors[j] or 0
-          local cnt = p.stash[col] or 0
-          local h = flr(cnt / STASH_SIZE * bh)
-          h = mid(0,h,bh)
-          if i==1 or i==2 then
-            if h>0 then rectfill(bx,by,bx+bw-1,by+h-1,col)
-            else line(bx,by,bx+bw-1,by,1) end
-          else
-            if h>0 then rectfill(bx,by+(bh-h),bx+bw-1,by+bh-1,col)
-            else line(bx,by+bh-1,bx+bw-1,by+bh-1,1) end
+        local score_text_width = #s_mode * FONT_WIDTH
+
+        -- Overlay box is 2x2 tiles = 16x16 px. We'll use 2px margin inside.
+        local anchor_x = (i==2 or i==4) and (128 - UI_BOX_SIZE) or 0
+        local anchor_y = (i>=3) and (128 - UI_BOX_SIZE) or 0
+
+        -- Render score and mode text
+        local text_y_pos = anchor_y + 2 -- 2px margin from top
+        local text_x_pos
+        if i == 1 or i == 3 then -- Left-side players (P1, P3): left-align text
+          text_x_pos = anchor_x + 2 -- 2px margin from left
+        else -- Right-side players (P2, P4): right-align text
+          text_x_pos = anchor_x + UI_BOX_SIZE - score_text_width - 2 -- 2px margin from right
+        end
+        print(s_mode, text_x_pos, text_y_pos, p:get_color())
+
+        -- Render stash bars
+        local bars_area_y_start = anchor_y + FONT_HEIGHT + TEXT_TO_BARS_GAP
+        local bars_area_height = UI_BOX_SIZE - (FONT_HEIGHT + TEXT_TO_BARS_GAP) -- Max height for bars
+
+        if bars_area_height >= 1 then -- Only draw if there's space
+          local total_stash_bars_width = NUM_STASH_DISPLAY_COLORS * STASH_BAR_WIDTH + (NUM_STASH_DISPLAY_COLORS - 1) * STASH_BAR_SPACING
+          
+          local bars_block_start_x
+          if i == 1 or i == 3 then -- Left-side players: left-align bars
+            bars_block_start_x = anchor_x
+          else -- Right-side players: right-align bars
+            bars_block_start_x = anchor_x + UI_BOX_SIZE - total_stash_bars_width
           end
-          bx += bw + bs
+
+          for j = 1, NUM_STASH_DISPLAY_COLORS do
+            local stash_color_for_bar = player_manager.colors[j] or 0 -- Get actual color ID
+            local count_in_stash = p.stash[stash_color_for_bar] or 0
+            
+            local bar_pixel_height = flr(count_in_stash / STASH_SIZE * bars_area_height)
+            bar_pixel_height = mid(0, bar_pixel_height, bars_area_height) -- Clamp height
+
+            local current_bar_x = bars_block_start_x + (j - 1) * (STASH_BAR_WIDTH + STASH_BAR_SPACING)
+            -- Bars are drawn from their top y-coordinate, filling downwards.
+            -- They should align to the bottom of the bars_area_height.
+            local current_bar_y_top = bars_area_y_start + (bars_area_height - bar_pixel_height)
+            
+            if bar_pixel_height > 0 then
+              rectfill(current_bar_x, current_bar_y_top, current_bar_x + STASH_BAR_WIDTH - 1, current_bar_y_top + bar_pixel_height - 1, stash_color_for_bar)
+            else
+              -- Draw a small line at the bottom for an empty stash of this color
+              local empty_bar_line_y = bars_area_y_start + bars_area_height - 1
+              line(current_bar_x, empty_bar_line_y, current_bar_x + STASH_BAR_WIDTH - 1, empty_bar_line_y, 1) -- Dark color for empty
+            end
+          end
         end
       end
     end
