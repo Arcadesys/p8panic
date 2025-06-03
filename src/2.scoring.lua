@@ -108,8 +108,6 @@ function score_pieces()
   for _,p_obj in ipairs(pieces) do
     if not p_obj.captured_flag then
       add(remaining_pieces, p_obj)
-    else
-      printh("Piece removed due to overcharge capture: P" .. p_obj.owner_id .. " " .. p_obj.type)
     end
   end
   pieces = remaining_pieces

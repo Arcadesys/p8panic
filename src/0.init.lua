@@ -130,9 +130,8 @@ function attempt_capture(player_obj, cursor)
             if (dist_x*dist_x + dist_y*dist_y) < CAPTURE_RADIUS_SQUARED then
               local captured_color = attacker_to_capture:get_color()
               player_obj:add_captured_piece(captured_color)
-              
               if del(pieces, attacker_to_capture) then
-                printh("P" .. player_id .. " captured attacker (color: " .. captured_color .. ")")
+                -- printh("P" .. player_id .. " captured attacker (color: " .. captured_color .. ")")
                 deli(piece_obj.targeting_attackers, attacker_idx) 
                 return true 
               end
@@ -160,14 +159,12 @@ function init_cursors(num_players)
     if i <= #all_possible_spawn_points then
       sp = all_possible_spawn_points[i]
     else
-      printh("Warning: No spawn point defined for P" .. i .. ". Defaulting.")
       sp = {x = 4 + (i-1)*10, y = 4}
     end
 
     if create_cursor then
       cursors[i] = create_cursor(i, sp.x, sp.y)
     else
-      printh("ERROR: create_cursor function is not defined! Cannot initialize cursors properly.")
       cursors[i] = {
         id = i,
         x = sp.x, y = sp.y,
@@ -178,7 +175,7 @@ function init_cursors(num_players)
         pending_orientation = 0,
         return_cooldown = 0,
         color_select_idx = 1,
-        draw = function() printh("Fallback cursor draw for P"..i) end
+        draw = function() -- printh("Fallback cursor draw for P"..i) end
       }
     end
   end
@@ -269,15 +266,13 @@ function internal_update_game_logic()
   if score_pieces then 
     score_pieces() 
   else 
-    printh("Error: score_pieces is nil in internal_update_game_logic!")
   end
 end
-
 
 function go_to_state(new_state)
   if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
     local current_game_stash_size = STASH_SIZE
-    printh("GO_TO_STATE: CAPTURED STASH_SIZE="..current_game_stash_size)
+    -- printh("GO_TO_STATE: CAPTURED STASH_SIZE="..current_game_stash_size)
 
     pieces = {}
     
@@ -294,7 +289,6 @@ function go_to_state(new_state)
         p.score = 0
         p.stash = {} 
         p.stash[p:get_color()] = current_game_stash_size 
-        printh("P"..i.." STASH INIT: C="..p:get_color().." SZ="..current_game_stash_size.." CT="..p.stash[p:get_color()])
       end
     end
     if original_update_game_logic_func then original_update_game_logic_func() end
@@ -310,34 +304,23 @@ end
 function _init()
   menuitem(1, "Finish Game", finish_game_menuitem)
   if not player_manager then
-    printh("ERROR: player_manager is NIL in _init()", true)
   end
   
   if internal_update_game_logic then
     original_update_game_logic_func = internal_update_game_logic
   else
-    printh("ERROR: internal_update_game_logic is NIL in _init!", true)
     original_update_game_logic_func = function() end
   end
   
   if update_controls then
     original_update_controls_func = update_controls
   else
-    printh("ERROR: update_controls is NIL in _init!", true)
     original_update_controls_func = function() end
   end
   
-  if not _ENV.score_pieces then
-     printh("ERROR: score_pieces is NIL in _init!", true)
-  end
-
   menu_selection = 1
   
   current_game_state = GAME_STATE_MENU
-  
-  if not player_manager.get_player_count then
-     printh("ERROR: player_manager.get_player_count is NIL in _init()", true)
-  end
   -- init_starfield() -- Initialize stars once
   init_tutorial_data() -- Initialize tutorial data once at start
 end
@@ -392,17 +375,14 @@ function update_playing_state()
     if original_update_controls_func then 
       original_update_controls_func() 
     else 
-      printh("Error: original_update_controls_func is nil in update_playing_state!") 
     end
 
     if original_update_game_logic_func then
       if type(original_update_game_logic_func) == "function" then
         original_update_game_logic_func()
       else
-        printh("Error: original_update_game_logic_func is not a function in update_playing_state!")
       end
     else 
-      printh("Error: original_update_game_logic_func is nil in update_playing_state!") 
     end
   end
 
@@ -526,14 +506,23 @@ function draw_playing_state_elements()
     local m,fw,fh,bh,bw,bs,nb = 2,4,5,8,2,1,4
     for i=1,player_manager.get_player_count() do
       local p = player_manager.get_player(i)
+      local cur = cursors[i]
       if p then
         local s = tostr(p:get_score())
-        local sw = #s*fw
+        local mode_letter = "?"
+        if cur and cur.pending_type then
+          if cur.pending_type == "attacker" then mode_letter = "A"
+          elseif cur.pending_type == "defender" then mode_letter = "D"
+          elseif cur.pending_type == "capture" then mode_letter = "C"
+          end
+        end
+        local s_mode = s.." "..mode_letter
+        local sw = #s_mode*fw
         local tw = nb*bw + (nb-1)*bs
         local block_w = max(sw,tw)
         local ax = (i==2 or i==4) and (128-m-block_w) or m
         local ay = (i>=3) and (128-m-(fh+2+bh)) or m
-        print(s, ax + ((block_w-sw) * ((i==2 or i==4) and 1 or 0)), ay, p:get_color())
+        print(s_mode, ax + ((block_w-sw) * ((i==2 or i==4) and 1 or 0)), ay, p:get_color())
         local bx = (i==2 or i==4) and (ax + block_w - tw) or ax
         local by = ay + fh + 1
         for j=1,nb do
@@ -581,7 +570,15 @@ function draw_gameover_state()
     for i = 1, #sorted_players do
       local p = sorted_players[i].player
       local pid = sorted_players[i].id
-      local score_text = "P" .. pid .. ": " .. p:get_score()
+      local cur = cursors[pid]
+      local mode_letter = "?"
+      if cur and cur.pending_type then
+        if cur.pending_type == "attacker" then mode_letter = "A"
+        elseif cur.pending_type == "defender" then mode_letter = "D"
+        elseif cur.pending_type == "capture" then mode_letter = "C"
+        end
+      end
+      local score_text = "P" .. pid .. ": " .. p:get_score() .. " " .. mode_letter
       print(score_text, 64 - #score_text * 2, 70 + i * 8, p:get_color())
     end
     print("Press X or O to return", 28, 100, 6)

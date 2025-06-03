@@ -216,7 +216,6 @@ function create_piece(params)
   elseif params.type == "defender" then
     piece_obj = Defender:new(params)
   else
-    printh("Error: Unknown piece type: " .. (params.type or "nil"))
     return nil
   end
   return piece_obj

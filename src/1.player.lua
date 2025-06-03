@@ -81,27 +81,21 @@ player_manager.current_players = {}
 
 function player_manager.init_players(num_players)
   if num_players < 1 or num_players > player_manager.max_players then
-    printh("Error: Invalid number of players. Must be between 1 and " .. player_manager.max_players)
     return
   end
 
   player_manager.current_players = {}
-
   for i = 1, num_players do
     local color = player_manager.colors[i]
     local ghost_color = player_manager.ghost_colors[i]
     if not color then
-      printh("Warning: No color defined for player " .. i .. ". Defaulting to white (7).")
       color = 7
     end
     if not ghost_color then
-      printh("Warning: No ghost color defined for player " .. i .. ". Defaulting to dark blue (1).")
       ghost_color = 1
     end
     player_manager.current_players[i] = Player:new(i, 0, color, ghost_color)
   end
-  
-  printh("Initialized " .. num_players .. " players.")
 end
 
 function player_manager.get_player(player_id)

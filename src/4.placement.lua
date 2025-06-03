@@ -118,26 +118,19 @@ function place_piece(piece_params, player_obj)
     local piece_color_to_place = piece_params.color
 
     if piece_color_to_place == nil then
-      printh("PLACE ERROR: piece_params.color is NIL!")
       return false
     end
     
-    printh("Place attempt: P"..player_obj.id.." color: "..tostring(piece_color_to_place).." type: "..piece_params.type)
-
     if player_obj:use_piece_from_stash(piece_color_to_place) then
       local new_piece_obj = create_piece(piece_params) 
       if new_piece_obj then
         add(pieces, new_piece_obj)
         score_pieces()
-        printh("Placed piece with color: " .. tostring(new_piece_obj:get_color()))
         return true
       else
-        printh("Failed to create piece object after stash use.")
         player_obj:add_captured_piece(piece_color_to_place)
         return false
       end
-    else
-      printh("P" .. player_obj.id .. " has no piece of color " .. tostring(piece_color_to_place) .. " in stash.")
       return false
     end
   else

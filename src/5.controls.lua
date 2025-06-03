@@ -14,14 +14,7 @@ function update_controls()
   -- Iterate through each player's cursor in the global 'cursors' table.
   for i, cur in ipairs(cursors) do
     local current_player_obj = player_manager.get_player(i)
-    printh("P"..i.." CTRL: P_OBJ IS ".. (current_player_obj and "OK" or "NIL")) -- DEBUG
-    if current_player_obj and current_player_obj.stash then -- DEBUG
-      for k,v in pairs(current_player_obj.stash) do -- DEBUG
-        printh("P"..i.." STASH: K="..k.." V="..v) -- DEBUG, no tostring
-      end
-    elseif current_player_obj then -- DEBUG
-        printh("P"..i.." STASH IS NIL") -- DEBUG
-    end -- DEBUG
+
 
     if not current_player_obj then goto next_cursor_ctrl end
 
@@ -42,13 +35,9 @@ function update_controls()
     local player_has_successful_defender = false
     if pieces then -- Ensure pieces table exists
       for piece_idx, p_obj in pairs(pieces) do -- Changed to pairs to get index for print
-        -- DEBUG: Print properties of pieces being checked
-        if p_obj.type == "defender" then -- Only print for defenders to reduce log spam
-          printh("P"..i.." CHK_DEF: ID="..piece_idx.." OWNER="..p_obj.owner_id.." TYPE="..p_obj.type.." STATE="..p_obj.state)
-        end
+
         if p_obj.owner_id == i and p_obj.type == "defender" and p_obj.state == "successful" then
           player_has_successful_defender = true
-          printh("P"..i.." FOUND SUCCESSFUL DEFENDER: ID="..piece_idx) -- DEBUG
           break
         end
       end
@@ -64,7 +53,6 @@ function update_controls()
       cur.pending_color = current_player_obj:get_color()
       forced_action_state = "must_place_defender"
     end
-    printh("P"..i.." FLAGS: EMPTY="..(player_has_empty_stash and "T" or "F").." HAS_DEF="..(player_has_successful_defender and "T" or "F").." FORCE_STATE="..forced_action_state) -- DEBUG
 
     -- Handle player cycling piece/action type if in normal state and CSTATE_MOVE_SELECT
     if cur.control_state == CSTATE_MOVE_SELECT and btnp(🅾️, i - 1) and forced_action_state == "normal" then
@@ -82,7 +70,6 @@ function update_controls()
     -- Set player's capture_mode based on the FINAL cur.pending_type for this frame
     if current_player_obj then
         current_player_obj.capture_mode = (cur.pending_type == "capture")
-        printh("P"..i.." CAPTURE MODE: "..(current_player_obj.capture_mode and "ON" or "OFF").." PENDING_TYPE: "..cur.pending_type) -- DEBUG
     end
 
     if cur.control_state == CSTATE_MOVE_SELECT then
@@ -98,8 +85,6 @@ function update_controls()
           if attempt_capture(current_player_obj, cur) then
             cur.control_state = CSTATE_COOLDOWN; cur.return_cooldown = 6
             if original_update_game_logic_func then original_update_game_logic_func() end -- Recalculate immediately
-          else
-            printh("P" .. i .. ": Capture failed.")
           end
         else -- pending_type is "defender" or "attacker"
           cur.control_state = CSTATE_ROTATE_PLACE
@@ -135,7 +120,6 @@ function update_controls()
         -- this situation should ideally be handled by `forced_action_state` pushing to "capture_only"
         -- or preventing entry into CSTATE_ROTATE_PLACE.
         -- For safety, if we reach here with no available colors, revert to move/select.
-        printh("P"..i.." WARN: No available colors in ROTATE_PLACE, reverting state.")
         cur.control_state = CSTATE_MOVE_SELECT
         goto next_cursor_ctrl -- Skip further processing for this cursor this frame
       end
@@ -176,7 +160,6 @@ function update_controls()
             -- This case should ideally be prevented by earlier checks.
             -- If somehow reached, use player's ghost color as a safe default.
             cur.pending_color = current_player_obj:get_ghost_color() 
-            printh("P"..i.." WARN: Setting pending_color to ghost_color due to no available_colors.")
         end
       end
 
@@ -193,8 +176,6 @@ function update_controls()
           cur.control_state = CSTATE_COOLDOWN
           cur.return_cooldown = 6  -- 6-frame cooldown after placement
           if original_update_game_logic_func then original_update_game_logic_func() end -- Recalculate board state
-        else
-          printh("Placement failed for P" .. i)
         end
       end
 
