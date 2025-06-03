@@ -19,10 +19,15 @@ function finish_game_menuitem()
     if score_pieces then score_pieces() end
     current_game_state = GAME_STATE_GAMEOVER
     GAME_TIMER = 0
+    gameover_timer = 2
+    -- play gameover sound and start music fade
+    sfx(effects.gameover_timer)
+    gameover_music_fade_start = true
   end
 end
 
 gameover_timer = 2
+gameover_music_fade_start = false
 
 pre_game_state = nil
 pre_game_start_t = 0
@@ -299,6 +304,11 @@ function internal_update_game_logic()
 end
 
 function go_to_state(new_state)
+  -- reset gameover music fade when leaving gameover state
+  if current_game_state == GAME_STATE_GAMEOVER and new_state != GAME_STATE_GAMEOVER then
+    gameover_music_fade_start = false
+  end
+  
   if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
     -- start music for play mode (track 0 by default)
     if music_enabled then
@@ -439,6 +449,9 @@ function update_playing_state()
     current_game_state = GAME_STATE_GAMEOVER
     GAME_TIMER = 0
     gameover_timer = 2
+    -- play gameover sound and start music fade
+    sfx(effects.gameover_timer)
+    gameover_music_fade_start = true
   end
 end
 
@@ -471,6 +484,19 @@ end
 function update_gameover_state()
   if gameover_timer and gameover_timer > 0 then
     gameover_timer = max(0, gameover_timer - (1/30))
+    
+    -- fade out music during gameover timer
+    if gameover_music_fade_start and music_enabled then
+      local fade_progress = 1 - (gameover_timer / 2) -- fade from 1 to 0 over 2 seconds
+      local volume = max(0, 0.5 * fade_progress) -- start from 0.5 volume and fade to 0
+      if volume <= 0 then
+        music(-1) -- stop music completely when volume reaches 0
+        gameover_music_fade_start = false
+      else
+        music(0, volume) -- adjust music volume
+      end
+    end
+    
     return
   end
   if btnp(❎) or btnp(🅾️) then
