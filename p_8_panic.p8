@@ -12,10 +12,6 @@ effects = {
   capture = 59,
   bad_placement = 60,
   gameover_timer = 61,
-  switch_mode = 48,      -- placeholder sfx id for switching mode
-  enter_rotation = 49,   -- placeholder sfx id for entering rotation mode
-  exit_rotation = 50    -- placeholder sfx id for exiting rotation mode
-}
 
 function finish_game_menuitem()
   if current_game_state == GAME_STATE_PLAYING then
