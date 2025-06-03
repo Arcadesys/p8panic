@@ -9,10 +9,6 @@ effects = {
   capture = 59,
   bad_placement = 60,
   gameover_timer = 61,
-  switch_mode = 48,      -- placeholder sfx id for switching mode
-  enter_rotation = 49,   -- placeholder sfx id for entering rotation mode
-  exit_rotation = 50    -- placeholder sfx id for exiting rotation mode
-}
 
 function finish_game_menuitem()
   if current_game_state == GAME_STATE_PLAYING then
@@ -310,6 +306,10 @@ function go_to_state(new_state)
   end
   
   if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
+    -- Reset pyramid rotation when starting new game
+    pyramid_rotation_x = 0
+pyramid_rotation_y = 0
+pyramid_rotation_z = 0
     -- start music for play mode (track 0 by default)
     if music_enabled then
       music(0,0.5)
@@ -489,8 +489,8 @@ function update_gameover_state()
     if gameover_music_fade_start and music_enabled then
       local fade_progress = 1 - (gameover_timer / 2) -- fade from 1 to 0 over 2 seconds
       local volume = max(0, 0.5 * fade_progress) -- start from 0.5 volume and fade to 0
-      if volume <= 0 then
-        music(-1) -- stop music completely when volume reaches 0
+      if volume <= 0.01 then -- use a small threshold instead of exactly 0
+        music(-1) -- stop music completely when volume is very low
         gameover_music_fade_start = false
       else
         music(0, volume) -- adjust music volume
@@ -675,10 +675,75 @@ end
 
 function draw_gameover_state()
   cls(0)
-  map(0, 0, 0, 0, 16, 16, 0)
-  draw_playing_state_elements()
-  print("FINISH!", 52, 60, 7)
-  if not gameover_timer or gameover_timer <= 0 then
+  
+  if gameover_timer and gameover_timer > 0 then
+    -- During timer: draw everything normally with "FINISH!" message
+    map(0, 0, 0, 0, 16, 16)
+    
+    -- Draw pieces at their normal positions
+    for _,o in ipairs(pieces) do 
+      if o.draw then 
+        o:draw() 
+      end 
+    end
+    
+    -- Draw cursors at their normal positions  
+    for _,c in ipairs(cursors) do 
+      if c and c.draw then 
+        c:draw() 
+      end 
+    end
+    
+    -- Draw "FINISH!" over the timer area
+    print("FINISH!", 52, 2, 7)
+  else
+    -- After timer: create a clean background for gameover screen with 3D pyramid
+    cls(0) -- Clean black background
+    rectfill(0, 0, 127, 15, 0) -- Clear top area for scores
+    
+    -- Don't draw pieces or cursors - clean gameover screen
+    
+    -- Find winning player and draw 3D pyramid
+    local winning_player = nil
+    local highest_score = -1
+    for i = 1, player_manager.get_player_count() do
+      local p = player_manager.get_player(i)
+      if p and p:get_score() > highest_score then
+        highest_score = p:get_score()
+        winning_player = p
+      end
+    end
+    
+    if winning_player then
+      draw_3d_pyramid(64, 30, winning_player:get_color()) -- Center in top 2/3 of screen
+      
+      -- Add big winner chyron at bottom
+      local winner_id = nil
+      for i = 1, player_manager.get_player_count() do
+        local p = player_manager.get_player(i)
+        if p == winning_player then
+          winner_id = i
+          break
+        end
+      end
+      
+      if winner_id then
+        local win_text = "PLAYER " .. winner_id .. " WINS!"
+        local text_width = #win_text * 4 -- each char is 4 pixels wide
+        local x_pos = 64 - (text_width / 2) -- center horizontally
+        
+        -- Draw shadow/outline for better visibility
+        print(win_text, x_pos + 1, 113, 0) -- black shadow
+        print(win_text, x_pos - 1, 113, 0) -- black shadow
+        print(win_text, x_pos, 114, 0) -- black shadow
+        print(win_text, x_pos, 112, 0) -- black shadow
+        
+        -- Draw main text in winner's color
+        print(win_text, x_pos, 113, winning_player:get_color())
+      end
+    end
+    
+    -- Draw scores in the top area (0-16 pixels) when map is repositioned
     local sorted_players = {}
     for i = 1, player_manager.get_player_count() do
       local p = player_manager.get_player(i)
@@ -707,15 +772,15 @@ function draw_gameover_state()
         end
       end
       local score_text = "P" .. pid .. ": " .. p:get_score() .. " " .. mode_letter
-      print(score_text, 64 - #score_text * 2, 70 + i * 8, p:get_color())
+      print(score_text, 64 - #score_text * 2, 2 + i * 6, p:get_color()) -- Compact spacing in top area
     end
-    print("Press X or O to return", 28, 100, 6)
+    print("Press X or O to return", 28, 120, 6)
   end
 end
 
 function draw_tutorial_state()
   cls(0)
-  map(0, 0, 0, 0, 16, 16,0)
+  map(0, 0, 0, 0, 16, 16)
 
   -- Draw real pieces
   for _,o in ipairs(pieces) do if o.draw then o:draw() end end
@@ -734,17 +799,85 @@ function draw_tutorial_state()
   print("🅾️:MENU", 88, 118, 7)
 end
 
+-- 3D pyramid variables
+pyramid_rotation_x = 0
+pyramid_rotation_y = 0
+pyramid_rotation_z = 0
+
+function draw_3d_pyramid(cx, cy, color)
+  -- Update all three rotation axes at much slower speeds for smooth motion
+  pyramid_rotation_x += 0.005
+  pyramid_rotation_y += 0.008
+  pyramid_rotation_z += 0.003
+  
+  -- Large pyramid vertices (scaled up for top 2/3 of screen)
+  local size = 30
+  local height = 25
+  local vertices = {
+    {x = -size, y = 0, z = -size},    -- base vertex 1
+    {x = size, y = 0, z = -size},     -- base vertex 2
+    {x = size, y = 0, z = size},      -- base vertex 3
+    {x = -size, y = 0, z = size},     -- base vertex 4
+    {x = 0, y = -height, z = 0}       -- apex
+  }
+  
+  -- Rotation matrices for all three axes
+  local cos_x, sin_x = cos(pyramid_rotation_x), sin(pyramid_rotation_x)
+  local cos_y, sin_y = cos(pyramid_rotation_y), sin(pyramid_rotation_y)
+  local cos_z, sin_z = cos(pyramid_rotation_z), sin(pyramid_rotation_z)
+  
+  local projected = {}
+  for i, v in ipairs(vertices) do
+    local x, y, z = v.x, v.y, v.z
+    
+    -- Rotate around X axis
+    local y1 = y * cos_x - z * sin_x
+    local z1 = y * sin_x + z * cos_x
+    
+    -- Rotate around Y axis
+    local x2 = x * cos_y + z1 * sin_y
+    local z2 = -x * sin_y + z1 * cos_y
+    
+    -- Rotate around Z axis
+    local x3 = x2 * cos_z - y1 * sin_z
+    local y3 = x2 * sin_z + y1 * cos_z
+    
+    -- Simple perspective projection
+    local distance = 100
+    local scale = distance / (distance + z2)
+    local px = cx + x3 * scale
+    local py = cy + y3 * scale + 20  -- offset down a bit in the top area
+    
+    projected[i] = {x = px, y = py, z = z2}
+  end
+  
+  -- Draw pyramid faces with proper depth sorting
+  -- Base (square base for more impressive look)
+  line(projected[1].x, projected[1].y, projected[2].x, projected[2].y, color)
+  line(projected[2].x, projected[2].y, projected[3].x, projected[3].y, color)
+  line(projected[3].x, projected[3].y, projected[4].x, projected[4].y, color)
+  line(projected[4].x, projected[4].y, projected[1].x, projected[1].y, color)
+  
+  -- Side faces from base to apex
+  line(projected[1].x, projected[1].y, projected[5].x, projected[5].y, color)
+  line(projected[2].x, projected[2].y, projected[5].x, projected[5].y, color)
+  line(projected[3].x, projected[3].y, projected[5].x, projected[5].y, color)
+  line(projected[4].x, projected[4].y, projected[5].x, projected[5].y, color)
+end
+
 function _draw()
   cls(0)
   -- draw_starfield() -- Assuming draw_starfield is defined elsewhere
-  map(0, 0, 0, 0, 16, 16,0)
+  
   if current_game_state == GAME_STATE_MENU then
+    map(0, 0, 0, 0, 16, 16)
     draw_menu_state()
   elseif current_game_state == GAME_STATE_PLAYING then
+    map(0, 0, 0, 0, 16, 16)
     draw_playing_state_elements()
   elseif current_game_state == GAME_STATE_GAMEOVER then
-    draw_gameover_state()
+    draw_gameover_state() -- This function handles its own map drawing
   elseif current_game_state == GAME_STATE_TUTORIAL then -- New state draw
-    draw_tutorial_state()
+    draw_tutorial_state() -- This function handles its own map drawing
   end
 end
