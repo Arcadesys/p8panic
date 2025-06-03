@@ -196,17 +196,29 @@ function Defender:draw()
   -- draw status indicator in the center
   local cx = self.position.x
   local cy = self.position.y
-  local status_col
+  
   if self.state == "successful" then
-    status_col = 11 -- green
+    -- draw animated check mark sprite
+    if sprites and sprites.defender_successful then
+      local frame_idx = flr(time() * 8) % #sprites.defender_successful + 1
+      local sprite_id = sprites.defender_successful[frame_idx]
+      spr(sprite_id, cx - 4, cy - 4)
+    end
   elseif self.state == "unsuccessful" then
-    status_col = 8 -- red
+    -- draw animated X sprite
+    if sprites and sprites.defender_unsuccessful then
+      local frame_idx = flr(time() * 8) % #sprites.defender_unsuccessful + 1
+      local sprite_id = sprites.defender_unsuccessful[frame_idx]
+      spr(sprite_id, cx - 4, cy - 4)
+    end
   elseif self.state == "overcharged" then
-    status_col = 13 -- purple
-  else
-    status_col = 5 -- neutral/gray if state is missing
+    -- draw animated purple orb
+    if sprites and sprites.defender_overcharged then
+      local frame_idx = flr(time() * 8) % #sprites.defender_overcharged + 1
+      local sprite_id = sprites.defender_overcharged[frame_idx]
+      spr(sprite_id, cx - 4, cy - 4)
+    end
   end
-  circfill(cx, cy, 2, status_col)
 end
 
 function create_piece(params)

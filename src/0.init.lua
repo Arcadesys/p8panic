@@ -13,6 +13,14 @@ effects = {
   enter_placement = 49,
   exit_placement = 50
 }
+
+-- sprite table for game elements
+sprites = {
+  defender_successful = {6, 22, 38, 54, 38, 22},    -- 1 tile check mark
+  defender_unsuccessful = {4, 20, 36, 52, 36, 20},  -- 1 tile X
+  defender_overcharged = {5, 21, 37, 53, 37, 21} -- four frame animation of purple orb
+}
+
 function finish_game_menuitem()
   if current_game_state == GAME_STATE_PLAYING then
     if score_pieces then score_pieces() end
