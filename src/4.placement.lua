@@ -1,9 +1,10 @@
+--#globals effects sfx create_piece add pieces score_pieces printh ray_segment_intersect LASER_LEN
 function legal_placement(piece_params)
   local ui_zones = {
-    {x1=0, y1=0, x2=15, y2=15},
-    {x1=112, y1=0, x2=127, y2=15},
-    {x1=0, y1=112, x2=15, y2=127},
-    {x1=112, y1=112, x2=127, y2=127}
+    {x1=0, y1=0, x2=15, y2=23},    -- Top left: 2x3 tiles
+    {x1=112, y1=0, x2=127, y2=23}, -- Top right: 2x3 tiles  
+    {x1=0, y1=104, x2=15, y2=127}, -- Bottom left: 2x3 tiles
+    {x1=112, y1=104, x2=127, y2=127} -- Bottom right: 2x3 tiles
   }
 
   local bw, bh = 128, 128
@@ -137,10 +138,20 @@ function place_piece(piece_params, player_obj)
         player_obj:add_captured_piece(piece_color_to_place)
         return false
       end
+    else
+      -- Player doesn't have this color in stash
+      printh("P"..player_obj.id.." doesn't have color "..piece_color_to_place.." in stash")
+      if effects and effects.bad_placement then
+        sfx(effects.bad_placement)
+      end
       return false
     end
   else
     printh("Placement not legal for P"..player_obj.id)
+    -- Play bad placement sound effect
+    if effects and effects.bad_placement then
+      sfx(effects.bad_placement)
+    end
     return false
   end
 end

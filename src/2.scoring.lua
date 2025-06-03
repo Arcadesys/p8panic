@@ -14,7 +14,10 @@ function reset_piece_states_for_scoring()
       p_obj.hits = 0
       p_obj.targeting_attackers = {}
       p_obj.dbg_target_count = nil
-      -- do not reset p_obj.state or p_obj.overcharge_announced here!
+      -- Reset defender state to default - it will be recalculated based on actual hits
+      if p_obj.type == "defender" then
+        p_obj.state = "successful"
+      end
     end
   end
 end
@@ -124,6 +127,14 @@ function score_pieces()
     _score_defender(p_obj, player_manager)
     if p_obj.type == "defender" then
       p_obj.dbg_target_count = nil
+      -- Update defender state based on final hit count
+      if p_obj.hits >= 3 then
+        p_obj.state = "overcharged"
+      elseif p_obj.hits == 2 then
+        p_obj.state = "unsuccessful"
+      elseif p_obj.hits <= 1 then
+        p_obj.state = "successful"
+      end
     end
   end
 

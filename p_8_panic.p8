@@ -168,17 +168,17 @@ end
 
 function init_cursors(num_players)
   -- Score/stash display box size and offset for kitty-corner spawn
-  local score_box_size = 22 -- estimated size of the score box (width/height)
+  local score_box_size = 24 -- 2x3 tiles = 16x24 px
   local spawn_offset = 6    -- distance from the box, diagonally
   local all_possible_spawn_points = {
     -- Player 1: top left, spawn down+right from UI box
-    {x = 16 + 2, y = 16 + 2},
+    {x = 16 + 2, y = 24 + 2},
     -- Player 2: top right, spawn down+left from UI box
-    {x = 128 - 16 - 2 - 8, y = 16 + 2},
+    {x = 128 - 16 - 2 - 8, y = 24 + 2},
     -- Player 3: bottom left, spawn up+right from UI box
-    {x = 16 + 2, y = 128 - 16 - 2 - 8},
+    {x = 16 + 2, y = 128 - 24 - 2 - 8},
     -- Player 4: bottom right, spawn up+left from UI box
-    {x = 128 - score_box_size - spawn_offset, y = 128 - score_box_size - spawn_offset}
+    {x = 128 - 16 - 2 - 8, y = 128 - 24 - 2 - 8}
   }
 
   cursors = {}
@@ -556,10 +556,10 @@ function draw_playing_state_elements()
     -- UI display constants for player info boxes
     local FONT_WIDTH = 4 -- Standard Pico-8 font width per char
     local FONT_HEIGHT = 5 -- Standard Pico-8 font character height
-    local UI_BOX_SIZE = 16 -- Each player UI box is 16x16 pixels (2x2 tiles)
-    local TEXT_TO_BARS_GAP = 1 -- Vertical gap between text line and stash bars
+    local UI_BOX_SIZE = 24 -- Each player UI box is 16x24 pixels (2x3 tiles)
+    local TEXT_TO_BARS_GAP = 2 -- Vertical gap between text line and stash bars (1 pixel clearance)
 
-    local STASH_BAR_WIDTH = 3 -- Width of each individual stash bar
+    local STASH_BAR_WIDTH = 2 -- Width of each individual stash bar (2 pixels wide)
     local STASH_BAR_SPACING = 1 -- Horizontal space between stash bars
     local NUM_STASH_DISPLAY_COLORS = 4 -- How many stash colors to display as bars
 
@@ -578,9 +578,10 @@ function draw_playing_state_elements()
         local s_mode = s.." "..mode_letter
         local score_text_width = #s_mode * FONT_WIDTH
 
-        -- Overlay box is 2x2 tiles = 16x16 px. We'll use 2px margin inside.
-        local anchor_x = (i==2 or i==4) and (128 - UI_BOX_SIZE) or 0
-        local anchor_y = (i>=3) and (128 - UI_BOX_SIZE) or 0
+        -- Overlay box is 2x3 tiles = 16x24 px. We'll use 2px margin inside.
+        local UI_BOX_WIDTH = 16 -- Actual width of UI box
+        local anchor_x = (i==2 or i==4) and (128 - UI_BOX_WIDTH) or 0  -- Use actual width
+        local anchor_y = (i>=3) and (128 - 24) or 0          -- 24px height for 3 tiles
 
         -- Render score and mode text
         local text_y_pos = anchor_y + 2 -- 2px margin from top
@@ -588,41 +589,57 @@ function draw_playing_state_elements()
         if i == 1 or i == 3 then -- Left-side players (P1, P3): left-align text
           text_x_pos = anchor_x + 2 -- 2px margin from left
         else -- Right-side players (P2, P4): right-align text
-          text_x_pos = anchor_x + UI_BOX_SIZE - score_text_width - 2 -- 2px margin from right
+          text_x_pos = anchor_x + UI_BOX_WIDTH - score_text_width - 2 -- 2px margin from right
         end
         print(s_mode, text_x_pos, text_y_pos, p:get_color())
 
         -- Render stash bars
-        local bars_area_y_start = anchor_y + FONT_HEIGHT + TEXT_TO_BARS_GAP
-        local bars_area_height = UI_BOX_SIZE - (FONT_HEIGHT + TEXT_TO_BARS_GAP) -- Max height for bars
+        local bars_area_y_start = anchor_y + FONT_HEIGHT + TEXT_TO_BARS_GAP + 1 -- Extra 1 pixel below score
+        local bars_area_height = UI_BOX_SIZE - (FONT_HEIGHT + TEXT_TO_BARS_GAP + 1) -- Adjusted for extra gap
+        local max_bar_height = bars_area_height - 3 -- Reserve 3px padding at top when at max
 
         if bars_area_height >= 1 then -- Only draw if there's space
           local total_stash_bars_width = NUM_STASH_DISPLAY_COLORS * STASH_BAR_WIDTH + (NUM_STASH_DISPLAY_COLORS - 1) * STASH_BAR_SPACING
           
           local bars_block_start_x
           if i == 1 or i == 3 then -- Left-side players: left-align bars
-            bars_block_start_x = anchor_x
+            bars_block_start_x = anchor_x + 1 -- 1 pixel padding from screen edge
           else -- Right-side players: right-align bars
-            bars_block_start_x = anchor_x + UI_BOX_SIZE - total_stash_bars_width
+            bars_block_start_x = anchor_x + UI_BOX_WIDTH - total_stash_bars_width - 1 -- Use correct box width
           end
 
           for j = 1, NUM_STASH_DISPLAY_COLORS do
             local stash_color_for_bar = player_manager.colors[j] or 0 -- Get actual color ID
             local count_in_stash = p.stash[stash_color_for_bar] or 0
             
-            local bar_pixel_height = flr(count_in_stash / STASH_SIZE * bars_area_height)
-            bar_pixel_height = mid(0, bar_pixel_height, bars_area_height) -- Clamp height
+            local bar_pixel_height = flr(count_in_stash / STASH_SIZE * max_bar_height) -- Use max_bar_height instead of bars_area_height
+            bar_pixel_height = mid(0, bar_pixel_height, max_bar_height) -- Clamp to max_bar_height
 
             local current_bar_x = bars_block_start_x + (j - 1) * (STASH_BAR_WIDTH + STASH_BAR_SPACING)
-            -- Bars are drawn from their top y-coordinate, filling downwards.
-            -- They should align to the bottom of the bars_area_height.
-            local current_bar_y_top = bars_area_y_start + (bars_area_height - bar_pixel_height)
+            
+            -- For players 1 and 2: bars grow downwards from top (0 is uppermost)
+            -- For players 3 and 4: bars grow upwards from bottom (traditional)
+            local current_bar_y_top, current_bar_y_bottom
+            if i == 1 or i == 2 then
+              -- Bars grow downwards: 0 is at the top, bars extend downward
+              current_bar_y_top = bars_area_y_start
+              current_bar_y_bottom = current_bar_y_top + bar_pixel_height - 1
+            else
+              -- Bars grow upwards: align to bottom of bars area
+              current_bar_y_top = bars_area_y_start + (bars_area_height - bar_pixel_height)
+              current_bar_y_bottom = current_bar_y_top + bar_pixel_height - 1
+            end
             
             if bar_pixel_height > 0 then
-              rectfill(current_bar_x, current_bar_y_top, current_bar_x + STASH_BAR_WIDTH - 1, current_bar_y_top + bar_pixel_height - 1, stash_color_for_bar)
+              rectfill(current_bar_x, current_bar_y_top, current_bar_x + STASH_BAR_WIDTH - 1, current_bar_y_bottom, stash_color_for_bar)
             else
-              -- Draw a small line at the bottom for an empty stash of this color
-              local empty_bar_line_y = bars_area_y_start + bars_area_height - 1
+              -- Draw a small line for an empty stash of this color
+              local empty_bar_line_y
+              if i == 1 or i == 2 then
+                empty_bar_line_y = bars_area_y_start -- Top for downward-growing bars
+              else
+                empty_bar_line_y = bars_area_y_start + bars_area_height - 1 -- Bottom for upward-growing bars
+              end
               line(current_bar_x, empty_bar_line_y, current_bar_x + STASH_BAR_WIDTH - 1, empty_bar_line_y, 1) -- Dark color for empty
             end
           end
@@ -853,7 +870,10 @@ function reset_piece_states_for_scoring()
       p_obj.hits = 0
       p_obj.targeting_attackers = {}
       p_obj.dbg_target_count = nil
-      -- do not reset p_obj.state or p_obj.overcharge_announced here!
+      -- Reset defender state to default - it will be recalculated based on actual hits
+      if p_obj.type == "defender" then
+        p_obj.state = "successful"
+      end
     end
   end
 end
@@ -963,6 +983,14 @@ function score_pieces()
     _score_defender(p_obj, player_manager)
     if p_obj.type == "defender" then
       p_obj.dbg_target_count = nil
+      -- Update defender state based on final hit count
+      if p_obj.hits >= 3 then
+        p_obj.state = "overcharged"
+      elseif p_obj.hits == 2 then
+        p_obj.state = "unsuccessful"
+      elseif p_obj.hits <= 1 then
+        p_obj.state = "successful"
+      end
     end
   end
 
@@ -1199,13 +1227,13 @@ function create_piece(params)
   return piece_obj
 end
 -->8
---placement
+--#globals effects sfx create_piece add pieces score_pieces printh ray_segment_intersect LASER_LEN
 function legal_placement(piece_params)
   local ui_zones = {
-    {x1=0, y1=0, x2=15, y2=15},
-    {x1=112, y1=0, x2=127, y2=15},
-    {x1=0, y1=112, x2=15, y2=127},
-    {x1=112, y1=112, x2=127, y2=127}
+    {x1=0, y1=0, x2=15, y2=23},    -- Top left: 2x3 tiles
+    {x1=112, y1=0, x2=127, y2=23}, -- Top right: 2x3 tiles  
+    {x1=0, y1=104, x2=15, y2=127}, -- Bottom left: 2x3 tiles
+    {x1=112, y1=104, x2=127, y2=127} -- Bottom right: 2x3 tiles
   }
 
   local bw, bh = 128, 128
@@ -1339,10 +1367,20 @@ function place_piece(piece_params, player_obj)
         player_obj:add_captured_piece(piece_color_to_place)
         return false
       end
+    else
+      -- Player doesn't have this color in stash
+      printh("P"..player_obj.id.." doesn't have color "..piece_color_to_place.." in stash")
+      if effects and effects.bad_placement then
+        sfx(effects.bad_placement)
+      end
       return false
     end
   else
     printh("Placement not legal for P"..player_obj.id)
+    -- Play bad placement sound effect
+    if effects and effects.bad_placement then
+      sfx(effects.bad_placement)
+    end
     return false
   end
 end
@@ -1703,8 +1741,8 @@ __gfx__
 000000001111116776111111111111110000000000eeee0000000000000000000000000000000000000000222220000000005111111111111111111111111111
 __map__
 1213000000000000000000000000111200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1213000000000000000000000000111200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 2223000000000000000000000000212200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 000000000d000000000f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -1715,8 +1753,8 @@ __map__
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000c000000000e000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000000000000000001c1d1e1f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-020300000000000d00002c2d2e2f010200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+020300000000000000001c1d1e1f010200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+121300000000000d00002c2d2e2f111200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 121300000000000000003c3d3e3f111200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __sfx__
 00010000226501f6501d6501a6501765014650116500f6500f6500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -1767,9 +1805,9 @@ __sfx__
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000001d77029700227000070000700007002670000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700
+000700000c7701f7700000027770297001f7700000027770000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0107000027770000001f7702970027770000001f77000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
