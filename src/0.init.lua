@@ -1,3 +1,19 @@
+-- effects table for sound effects
+-- fill in as you add sfx to your cart
+
+music_enabled = true
+effects = {
+  attacker_placement = 56,
+  defender_placement = 57,
+  overcharge = 58,
+  capture = 59,
+  bad_placement = 60,
+  gameover_timer = 61,
+  switch_mode = 48,      -- placeholder sfx id for switching mode
+  enter_rotation = 49,   -- placeholder sfx id for entering rotation mode
+  exit_rotation = 50    -- placeholder sfx id for exiting rotation mode
+}
+
 function finish_game_menuitem()
   if current_game_state == GAME_STATE_PLAYING then
     if score_pieces then score_pieces() end
@@ -132,8 +148,11 @@ function attempt_capture(player_obj, cursor)
               player_obj:add_captured_piece(captured_color)
               if del(pieces, attacker_to_capture) then
                 -- printh("P" .. player_id .. " captured attacker (color: " .. captured_color .. ")")
-                deli(piece_obj.targeting_attackers, attacker_idx) 
-                return true 
+                if effects and effects.capture then
+                  sfx(effects.capture)
+                end
+                deli(piece_obj.targeting_attackers, attacker_idx)
+                return true
               end
             end
           end
@@ -167,15 +186,19 @@ function init_cursors(num_players)
     else
       cursors[i] = {
         id = i,
-        x = sp.x, y = sp.y,
-        spawn_x = sp.x, spawn_y = sp.y,
+        x = sp.x,
+        y = sp.y,
+        spawn_x = sp.x,
+        spawn_y = sp.y,
         control_state = 0,
         pending_type = "defender",
         pending_color = 7,
         pending_orientation = 0,
         return_cooldown = 0,
         color_select_idx = 1,
-        draw = function() -- printh("Fallback cursor draw for P"..i) end
+        draw = function()
+          -- printh("Fallback cursor draw for P"..i)
+        end
       }
     end
   end
@@ -192,47 +215,46 @@ tutorial_page_current = 1
 tutorial_pages_data = {}
 
 function init_tutorial_data()
-  tutorial_pages_data = {
-    {
-      lines = {"TUTORIAL: PAGE 1", "welcome to pico panic!", "PLACE DEFENDERS (SQUARES)", "AND ATTACKERS (TRIANGLES)."},
-      pieces = {
-        {type="defender", x=30, y=80, orientation=0, color=12},
-        {type="attacker", x=98, y=80, orientation=0.25, color=8}
-      }
-    },
-    {
-      lines = {"TUTORIAL: PAGE 2", "ATTACKERS SHOOT LASERS.", "DEFENDERS SCORE IF NOT HIT,", "OR HIT BY ONLY ONE LASER."},
-      pieces = {
-        {type="attacker", x=20, y=70, orientation=0, color=10},
-        {type="defender", x=40, y=70, orientation=0, color=12},
-        {type="defender", x=80, y=70, orientation=0, color=14, state="hit"},
-        {type="attacker", x=100, y=70, orientation=0.5, color=9},
-        {type="attacker", x=80, y=90, orientation=0.25, color=11}
-      } 
-    },  
-    {
-      lines = {"TUTORIAL: PAGE 3", "OVERCHARGED DEFENDERS", "(HIT BY 3+ LASERS)", "CAN CAPTURE ENEMY ATTACKERS."},
-      pieces = {
-         {type="defender", x=64, y=70, orientation=0, color=11, state="overcharged"},
-         {type="attacker", x=108, y=70, orientation=0.5, color=9},
-         {type="attacker", x=90, y=90, orientation=0.4, color=10},
-         {type="attacker", x=40, y=70, orientation=2, color=8},
-      }
-    },
-    {
-      lines = {"TUTORIAL: PAGE 4", "use your prisoners", "to block enemy attacks!"},
-      pieces = {
-         {type="defender", x=64, y=70, orientation=0, color=11, state="overcharged"},
-         {type="attacker", x=108, y=70, orientation=0.5, color=9},
-         {type="attacker", x=90, y=90, orientation=0.4, color=10},
-         {type="defender", x=80, y=70, orientation=2, color=8},
-      }
-    },
-    {
-      lines = {"TUTORIAL: PAGE 5", "CONTROLS:", "x: PLACE PIECE", "o: switch mode","udlr: MOVE CURSOR", "while placing", "lr rotate", "ud select piece", "MOST POINTS WINS. GOOD LUCK!"},
-      pieces = {}
+  tutorial_pages_data = {}
+  add(tutorial_pages_data, {
+    lines = {"TUTORIAL: PAGE 1", "welcome to pico panic!", "PLACE DEFENDERS (SQUARES)", "AND ATTACKERS (TRIANGLES)."},
+    pieces = {
+      {type="defender", x=30, y=80, orientation=0, color=12},
+      {type="attacker", x=98, y=80, orientation=0.25, color=8}
     }
-  } 
+  })
+  add(tutorial_pages_data, {
+    lines = {"TUTORIAL: PAGE 2", "ATTACKERS SHOOT LASERS.", "DEFENDERS SCORE IF NOT HIT,", "OR HIT BY ONLY ONE LASER."},
+    pieces = {
+      {type="attacker", x=20, y=70, orientation=0, color=10},
+      {type="defender", x=40, y=70, orientation=0, color=12},
+      {type="defender", x=80, y=70, orientation=0, color=14, state="hit"},
+      {type="attacker", x=100, y=70, orientation=0.5, color=9},
+      {type="attacker", x=80, y=90, orientation=0.25, color=11}
+    }
+  })
+  add(tutorial_pages_data, {
+    lines = {"TUTORIAL: PAGE 3", "OVERCHARGED DEFENDERS", "(HIT BY 3+ LASERS)", "CAN CAPTURE ENEMY ATTACKERS."},
+    pieces = {
+      {type="defender", x=64, y=70, orientation=0, color=11, state="overcharged"},
+      {type="attacker", x=108, y=70, orientation=0.5, color=9},
+      {type="attacker", x=90, y=90, orientation=0.4, color=10},
+      {type="attacker", x=40, y=70, orientation=2, color=8}
+    }
+  })
+  add(tutorial_pages_data, {
+    lines = {"TUTORIAL: PAGE 4", "use your prisoners", "to block enemy attacks!"},
+    pieces = {
+      {type="defender", x=64, y=70, orientation=0, color=11, state="overcharged"},
+      {type="attacker", x=108, y=70, orientation=0.5, color=9},
+      {type="attacker", x=90, y=90, orientation=0.4, color=10},
+      {type="defender", x=80, y=70, orientation=2, color=8}
+    }
+  })
+  add(tutorial_pages_data, {
+    lines = {"TUTORIAL: PAGE 5", "CONTROLS:", "x: PLACE PIECE", "o: switch mode","udlr: MOVE CURSOR", "while placing", "lr rotate", "ud select piece", "MOST POINTS WINS. GOOD LUCK!"},
+    pieces = {}
+  })
 end
 
 function setup_tutorial_page(page)
@@ -271,6 +293,12 @@ end
 
 function go_to_state(new_state)
   if new_state == GAME_STATE_PLAYING and current_game_state ~= GAME_STATE_PLAYING then
+    -- start music for play mode (track 0 by default)
+    if music_enabled then
+      music(0,0.5)
+    else
+      music(-1)
+    end
     local current_game_stash_size = STASH_SIZE
     -- printh("GO_TO_STATE: CAPTURED STASH_SIZE="..current_game_stash_size)
 
@@ -333,7 +361,7 @@ function update_menu_state()
   if btnp(⬆️) then
     menu_selection = max(1, menu_selection - 1)
   elseif btnp(⬇️) then
-    menu_selection = min(4, menu_selection + 1) -- Increased to 4 for "How to Play"
+    menu_selection = min(5, menu_selection + 1) -- Increased to 5 for new music option
   end
 
   if menu_selection == 1 then
@@ -354,12 +382,21 @@ function update_menu_state()
     elseif btnp(➡️) then
       ROUND_TIME = min(ROUND_TIME_MAX, ROUND_TIME + 30)
     end
-  elseif menu_selection == 4 then -- How to Play
-    -- No options to change for "How to Play" with L/R
+  elseif menu_selection == 4 then -- Music toggle
+    if btnp(⬅️) or btnp(➡️) then
+      music_enabled = not music_enabled
+      if not music_enabled then
+        music(-1) -- stop music
+      else
+        if current_game_state == GAME_STATE_PLAYING then
+          music(0,0.5)
+        end
+      end
+    end
   end
 
   if btnp(❎) or btnp(🅾️) then
-    if menu_selection == 4 then
+    if menu_selection == 5 then
       go_to_state(GAME_STATE_TUTORIAL)
     else
       go_to_state(GAME_STATE_PLAYING)
@@ -478,14 +515,16 @@ function draw_menu_state()
   local stash_color = (menu_selection == 1) and 7 or 11
   local player_color = (menu_selection == 2) and 7 or 11
   local timer_color = (menu_selection == 3) and 7 or 11
-  local tutorial_color = (menu_selection == 4) and 7 or 11 -- Color for "How to Play"
+  local music_color = (menu_selection == 4) and 7 or 11
+  local tutorial_color = (menu_selection == 5) and 7 or 11
 
-  print("STASH SIZE: "..STASH_SIZE, 28, 70, stash_color) -- Adjusted y
-  print("PLAYERS: "..PLAYER_COUNT, 28, 80, player_color) -- Adjusted y
+  print("STASH SIZE: "..STASH_SIZE, 28, 70, stash_color)
+  print("PLAYERS: "..PLAYER_COUNT, 28, 80, player_color)
   local minstr = flr(ROUND_TIME/60)
   local secstr = (ROUND_TIME%60 < 10 and "0" or "")..(ROUND_TIME%60)
-  print("ROUND TIME: "..minstr..":"..secstr, 28, 90, timer_color) -- Adjusted y
-  print("HOW TO PLAY", 28, 100, tutorial_color) -- New menu item
+  print("ROUND TIME: "..minstr..":"..secstr, 28, 90, timer_color)
+  print("MUSIC: "..(music_enabled and "ON" or "OFF"), 28, 100, music_color)
+  print("HOW TO PLAY", 28, 110, tutorial_color)
 end
 
 function draw_playing_state_elements()

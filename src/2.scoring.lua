@@ -14,6 +14,7 @@ function reset_piece_states_for_scoring()
       p_obj.hits = 0
       p_obj.targeting_attackers = {}
       p_obj.dbg_target_count = nil
+      -- do not reset p_obj.state or p_obj.overcharge_announced here!
     end
   end
 end
@@ -77,20 +78,43 @@ function _score_defender(p_obj, player_manager_param)
 end
 
 function score_pieces()
+  -- Ensure required globals are available
+  local player_manager = player_manager
+  local ray_segment_intersect = ray_segment_intersect
+  local LASER_LEN = LASER_LEN
+  local add = add
   reset_player_scores()
   reset_piece_states_for_scoring()
 
   for _, attacker_obj in ipairs(pieces) do
     if attacker_obj and attacker_obj.type == "attacker" then
-      for _, defender_obj in ipairs(pieces) do
-        if defender_obj and defender_obj.type == "defender" then
-          _check_attacker_hit_piece(attacker_obj, defender_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
+      local attacker_vertices = attacker_obj:get_draw_vertices()
+      if attacker_vertices and #attacker_vertices > 0 then
+        local apex = attacker_vertices[1]
+        local dir_x = cos(attacker_obj.orientation)
+        local dir_y = sin(attacker_obj.orientation)
+        local closest_t = LASER_LEN
+        local closest_piece = nil
+        -- Check all other pieces for intersection
+        for _, target_obj in ipairs(pieces) do
+          if target_obj ~= attacker_obj then
+            local target_corners = target_obj:get_draw_vertices()
+            if target_corners and #target_corners > 0 then
+              for j = 1, #target_corners do
+                local k = (j % #target_corners) + 1
+                local ix, iy, t = ray_segment_intersect(apex.x, apex.y, dir_x, dir_y,
+                  target_corners[j].x, target_corners[j].y,
+                  target_corners[k].x, target_corners[k].y)
+                if t and t >= 0 and t < closest_t then
+                  closest_t = t
+                  closest_piece = target_obj
+                end
+              end
+            end
+          end
         end
-      end
-      
-      for _, other_attacker_obj in ipairs(pieces) do
-        if other_attacker_obj and other_attacker_obj.type == "attacker" and other_attacker_obj ~= attacker_obj then
-          _check_attacker_hit_piece(attacker_obj, other_attacker_obj, player_manager, ray_segment_intersect, LASER_LEN, add)
+        if closest_piece then
+          _check_attacker_hit_piece(attacker_obj, closest_piece, player_manager, ray_segment_intersect, LASER_LEN, add)
         end
       end
     end
@@ -98,7 +122,6 @@ function score_pieces()
 
   for _, p_obj in ipairs(pieces) do
     _score_defender(p_obj, player_manager)
-    
     if p_obj.type == "defender" then
       p_obj.dbg_target_count = nil
     end

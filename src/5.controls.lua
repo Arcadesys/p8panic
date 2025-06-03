@@ -65,6 +65,10 @@ function update_controls()
             cur.pending_type = "defender"
         end
         cur.pending_orientation = current_orientation
+        -- play switch mode sfx
+        if effects and effects.switch_mode then
+          sfx(effects.switch_mode)
+        end
     end
 
     -- Set player's capture_mode based on the FINAL cur.pending_type for this frame
@@ -88,6 +92,10 @@ function update_controls()
           end
         else -- pending_type is "defender" or "attacker"
           cur.control_state = CSTATE_ROTATE_PLACE
+          -- play enter rotation sfx
+          if effects and effects.enter_rotation then
+            sfx(effects.enter_rotation)
+          end
           -- Orientation and color will be handled in CSTATE_ROTATE_PLACE
           -- No longer resetting orientation when starting placement
         end
@@ -183,6 +191,10 @@ function update_controls()
       -- Cancel placement with Button O.
       if btnp(🅾️, i - 1) then
         cur.control_state = CSTATE_MOVE_SELECT
+        -- play exit rotation sfx
+        if effects and effects.exit_rotation then
+          sfx(effects.exit_rotation)
+        end
       end
 
     elseif cur.control_state == CSTATE_COOLDOWN then

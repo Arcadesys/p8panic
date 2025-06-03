@@ -125,6 +125,12 @@ function place_piece(piece_params, player_obj)
       local new_piece_obj = create_piece(piece_params) 
       if new_piece_obj then
         add(pieces, new_piece_obj)
+        -- play defender or attacker placement sfx
+        if piece_params.type == "defender" and effects and effects.defender_placement then
+          sfx(effects.defender_placement)
+        elseif piece_params.type == "attacker" and effects and effects.attacker_placement then
+          sfx(effects.attacker_placement)
+        end
         score_pieces()
         return true
       else
