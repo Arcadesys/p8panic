@@ -555,9 +555,10 @@ function draw_starfield()
 end
 
 function draw_menu_state()
-  print("P8PANIC", 50, 30, 7) -- Adjusted y for new option
-  print("PRESS X OR O", 40, 44, 8)
-  print("TO START", 50, 52, 8)
+  print("pico panic", 32, 20, 7)
+  print("a game from the arcades", 18, 32, 7) 
+  print("PRESS X OR O", 32, 48, 8)
+  print("TO START", 42, 56, 8)
   if not menu_selection then menu_selection = 1 end
   local stash_color = (menu_selection == 1) and 7 or 11
   local player_color = (menu_selection == 2) and 7 or 11
@@ -1566,6 +1567,8 @@ function place_piece(piece_params, player_obj)
     return false
   end
 end
+-->8
+--controls
 -->8
 -- Converted Controls Module for Multi-Cursor Support
 -- Handles player input and updates control-related game state for each cursor.
