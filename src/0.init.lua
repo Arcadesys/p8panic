@@ -141,7 +141,6 @@ function attempt_capture(player_obj, cursor)
               local captured_color = attacker_to_capture:get_color()
               if del(pieces, attacker_to_capture) then
                 player_obj:add_captured_piece(captured_color)
-                -- printh("P" .. player_id .. " captured attacker (color: " .. captured_color .. ")")
                 if effects and effects.capture then
                   sfx(effects.capture)
                 end
@@ -184,23 +183,21 @@ function init_cursors(num_players)
 
     if create_cursor then
       cursors[i] = create_cursor(i, sp.x, sp.y)
-    else
-      cursors[i] = {
-        id = i,
-        x = sp.x,
-        y = sp.y,
-        spawn_x = sp.x,
-        spawn_y = sp.y,
-        control_state = 0,
-        pending_type = "defender",
-        pending_color = 7,
-        pending_orientation = 0,
-        return_cooldown = 0,
-        color_select_idx = 1,
-        draw = function()
-          -- printh("Fallback cursor draw for P"..i)
-        end
-      }
+    else        cursors[i] = {
+          id = i,
+          x = sp.x,
+          y = sp.y,
+          spawn_x = sp.x,
+          spawn_y = sp.y,
+          control_state = 0,
+          pending_type = "defender",
+          pending_color = 7,
+          pending_orientation = 0,
+          return_cooldown = 0,
+          color_select_idx = 1,
+          draw = function()
+          end
+        }
     end
   end
 end
@@ -310,7 +307,6 @@ pyramid_rotation_z = 0
       music(-1)
     end
     local current_game_stash_size = STASH_SIZE
-    -- printh("GO_TO_STATE: CAPTURED STASH_SIZE="..current_game_stash_size)
 
     pieces = {}
     
@@ -537,23 +533,20 @@ function draw_playing_state_elements()
  for i=1,player_manager.get_player_count()do
   local p,c=player_manager.get_player(i),cursors[i]
   if p then
-   local s,m=tostr(p:get_score()),"?"
-   if c and c.pending_type then
-    if c.pending_type=="attacker"then m="A"
-    elseif c.pending_type=="defender"then m="D"
-    elseif c.pending_type=="capture"then m="C"end
-   end
-   local sm,w=s.." "..m,#(s.." "..m)*4
+   local s,m=tostr(p.score),c and(c.pending_type=="attacker"and"A"or c.pending_type=="defender"and"D"or c.pending_type=="capture"and"C")or"?"
+   local sm=s.." "..m
    local ax,ay=(i==2 or i==4)and 112 or 0,(i>=3)and 104 or 0
-   local tx=(i==1 or i==3)and ax+2 or ax+14-w
-   print(sm,tx,ay+2,p:get_color())
+   local tx=(i==1 or i==3)and ax+2 or ax+14-#sm*4
+   print(sm,tx,ay+2,p.color)
    local by,bh=ay+9,13
    for j=1,4 do
-    local col,cnt=player_manager.colors[j]or 0,p.stash[player_manager.colors[j]or 0]or 0
+    local col,cnt=player_manager.colors[j],p.stash[player_manager.colors[j]]or 0
     local h=flr(cnt/STASH_SIZE*bh)
-    local bx=((i==1 or i==3)and ax+1 or ax+11)+(j-1)*3
-    local y1,y2=(i<=2)and by or by+bh-h,(i<=2)and by+h-1 or by+bh-1
-    if h>0 then rectfill(bx,y1,bx+1,y2,col)end
+    if h>0 then
+     local bx=((i==1 or i==3)and ax+1 or ax+11)+(j-1)*3
+     local y1,y2=(i<=2)and by or by+bh-h,(i<=2)and by+h-1 or by+bh-1
+     rectfill(bx,y1,bx+1,y2,col)
+    end
    end
   end
  end
@@ -693,64 +686,37 @@ pyramid_rotation_y = 0
 pyramid_rotation_z = 0
 
 function draw_3d_pyramid(cx, cy, color)
-  -- Update all three rotation axes at much slower speeds for smooth motion
   pyramid_rotation_x += 0.005
   pyramid_rotation_y += 0.008
   pyramid_rotation_z += 0.003
   
-  -- Large pyramid vertices (scaled up for top 2/3 of screen)
-  local size = 30
-  local height = 25
+  local size,height = 30,25
   local vertices = {
-    {x = -size, y = 0, z = -size},    -- base vertex 1
-    {x = size, y = 0, z = -size},     -- base vertex 2
-    {x = size, y = 0, z = size},      -- base vertex 3
-    {x = -size, y = 0, z = size},     -- base vertex 4
-    {x = 0, y = -height, z = 0}       -- apex
+    {-size, 0, -size}, {size, 0, -size}, {size, 0, size}, {-size, 0, size}, {0, -height, 0}
   }
   
-  -- Rotation matrices for all three axes
-  local cos_x, sin_x = cos(pyramid_rotation_x), sin(pyramid_rotation_x)
-  local cos_y, sin_y = cos(pyramid_rotation_y), sin(pyramid_rotation_y)
-  local cos_z, sin_z = cos(pyramid_rotation_z), sin(pyramid_rotation_z)
+  local cx_cos,sx_sin,cy_cos,sy_sin,cz_cos,sz_sin = cos(pyramid_rotation_x),sin(pyramid_rotation_x),cos(pyramid_rotation_y),sin(pyramid_rotation_y),cos(pyramid_rotation_z),sin(pyramid_rotation_z)
   
   local projected = {}
   for i, v in ipairs(vertices) do
-    local x, y, z = v.x, v.y, v.z
+    local x,y,z = v[1],v[2],v[3]
     
-    -- Rotate around X axis
-    local y1 = y * cos_x - z * sin_x
-    local z1 = y * sin_x + z * cos_x
+    -- Combined rotation
+    local y1,z1 = y * cx_cos - z * sx_sin, y * sx_sin + z * cx_cos
+    local x2,z2 = x * cy_cos + z1 * sy_sin, -x * sy_sin + z1 * cy_cos
+    local x3,y3 = x2 * cz_cos - y1 * sz_sin, x2 * sz_sin + y1 * cz_cos
     
-    -- Rotate around Y axis
-    local x2 = x * cos_y + z1 * sin_y
-    local z2 = -x * sin_y + z1 * cos_y
-    
-    -- Rotate around Z axis
-    local x3 = x2 * cos_z - y1 * sin_z
-    local y3 = x2 * sin_z + y1 * cos_z
-    
-    -- Simple perspective projection
-    local distance = 100
-    local scale = distance / (distance + z2)
-    local px = cx + x3 * scale
-    local py = cy + y3 * scale + 20  -- offset down a bit in the top area
-    
-    projected[i] = {x = px, y = py, z = z2}
+    -- Projection
+    local scale = 100 / (100 + z2)
+    projected[i] = {x = cx + x3 * scale, y = cy + y3 * scale + 20}
   end
   
-  -- Draw pyramid faces with proper depth sorting
-  -- Base (square base for more impressive look)
-  line(projected[1].x, projected[1].y, projected[2].x, projected[2].y, color)
-  line(projected[2].x, projected[2].y, projected[3].x, projected[3].y, color)
-  line(projected[3].x, projected[3].y, projected[4].x, projected[4].y, color)
-  line(projected[4].x, projected[4].y, projected[1].x, projected[1].y, color)
-  
-  -- Side faces from base to apex
-  line(projected[1].x, projected[1].y, projected[5].x, projected[5].y, color)
-  line(projected[2].x, projected[2].y, projected[5].x, projected[5].y, color)
-  line(projected[3].x, projected[3].y, projected[5].x, projected[5].y, color)
-  line(projected[4].x, projected[4].y, projected[5].x, projected[5].y, color)
+  -- Draw pyramid
+  for i=1,4 do
+    local j = i%4+1
+    line(projected[i].x, projected[i].y, projected[j].x, projected[j].y, color)
+    line(projected[i].x, projected[i].y, projected[5].x, projected[5].y, color)
+  end
 end
 
 function _draw()

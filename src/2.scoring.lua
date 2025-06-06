@@ -75,68 +75,48 @@ function _score_defender(p_obj, player_manager_param)
 end
 
 function score_pieces()
-  -- Ensure required globals are available
-  local player_manager = player_manager
-  local ray_segment_intersect = ray_segment_intersect
-  local LASER_LEN = LASER_LEN
-  local add = add
+  local pm,rsif,ll,a=player_manager,ray_segment_intersect,LASER_LEN,add
   reset_player_scores()
   reset_piece_states_for_scoring()
 
   for _, attacker_obj in ipairs(pieces) do
-    if attacker_obj and attacker_obj.type == "attacker" then
-      local attacker_vertices = attacker_obj:get_draw_vertices()
-      if attacker_vertices and #attacker_vertices > 0 then
-        local apex = attacker_vertices[1]
-        local dir_x = cos(attacker_obj.orientation)
-        local dir_y = sin(attacker_obj.orientation)
-        local closest_t = LASER_LEN
-        local closest_piece = nil
-        -- Check all other pieces for intersection
+    if attacker_obj.type == "attacker" then
+      local av = attacker_obj:get_draw_vertices()
+      if av and #av > 0 then
+        local apex,dx,dy=av[1],cos(attacker_obj.orientation),sin(attacker_obj.orientation)
+        local closest_t,closest_piece=ll,nil
         for _, target_obj in ipairs(pieces) do
           if target_obj ~= attacker_obj then
-            local target_corners = target_obj:get_draw_vertices()
-            if target_corners and #target_corners > 0 then
-              for j = 1, #target_corners do
-                local k = (j % #target_corners) + 1
-                local ix, iy, t = ray_segment_intersect(apex.x, apex.y, dir_x, dir_y,
-                  target_corners[j].x, target_corners[j].y,
-                  target_corners[k].x, target_corners[k].y)
+            local tc = target_obj:get_draw_vertices()
+            if tc and #tc > 0 then
+              for j = 1, #tc do
+                local k = (j % #tc) + 1
+                local ix, iy, t = rsif(apex.x, apex.y, dx, dy, tc[j].x, tc[j].y, tc[k].x, tc[k].y)
                 if t and t >= 0 and t < closest_t then
-                  closest_t = t
-                  closest_piece = target_obj
+                  closest_t,closest_piece = t,target_obj
                 end
               end
             end
           end
         end
         if closest_piece then
-          _check_attacker_hit_piece(attacker_obj, closest_piece, player_manager, ray_segment_intersect, LASER_LEN, add)
+          _check_attacker_hit_piece(attacker_obj, closest_piece, pm, rsif, ll, a)
         end
       end
     end
   end
 
   for _, p_obj in ipairs(pieces) do
-    _score_defender(p_obj, player_manager)
+    _score_defender(p_obj, pm)
     if p_obj.type == "defender" then
-      p_obj.dbg_target_count = nil
-      -- Update defender state based on final hit count
-      if p_obj.hits >= 3 then
-        p_obj.state = "overcharged"
-      elseif p_obj.hits == 2 then
-        p_obj.state = "unsuccessful"
-      elseif p_obj.hits <= 1 then
-        p_obj.state = "successful"
-      end
+      local h=p_obj.hits
+      p_obj.state = h >= 3 and "overcharged" or h == 2 and "unsuccessful" or "successful"
     end
   end
 
-  local remaining_pieces = {}
+  local rp={}
   for _,p_obj in ipairs(pieces) do
-    if not p_obj.captured_flag then
-      add(remaining_pieces, p_obj)
-    end
+    if not p_obj.captured_flag then a(rp, p_obj) end
   end
-  pieces = remaining_pieces
+  pieces = rp
 end

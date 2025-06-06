@@ -3,88 +3,57 @@ local CSTATE_MOVE_SELECT,CSTATE_ROTATE_PLACE,CSTATE_COOLDOWN=0,1,2
 function update_controls()
  for i,cur in ipairs(cursors)do
   local p=player_manager.get_player(i)
-  if not p then goto next_cursor_ctrl end
+  if not p or p.is_cpu then goto next_cursor_ctrl end
   
-  -- Skip controls for CPU players
-  if p.is_cpu then goto next_cursor_ctrl end
-  
-  local current_player_obj = p  -- Set the current player object
-  
-  local empty_stash=true
+  local es=true
   if p and p.stash then
-   for _,cnt in pairs(p.stash)do if cnt>0 then empty_stash=false end end
+   for _,cnt in pairs(p.stash)do if cnt>0 then es=false break end end
   end
-  local has_def=false
+  local hd=false
   if pieces then
    for _,po in pairs(pieces)do
-    if po.owner_id==i and po.type=="defender"and po.state=="successful"then has_def=true break end
+    if po.owner_id==i and po.type=="defender"and po.state=="successful"then hd=true break end
    end
   end
-  local forced="normal"
-  if empty_stash then
+  local fa="normal"
+  if es then
    cur.pending_type="capture"
-   forced="capture_only"
-  elseif not has_def then
+   fa="capture_only"
+  elseif not hd then
    cur.pending_type="defender"
    cur.pending_color=p:get_color()
-   forced="must_place_defender"
+   fa="must_place_defender"
   end
-  if cur.control_state==CSTATE_MOVE_SELECT and btnp(🅾️,i-1)and forced=="normal"then
-   if cur.pending_type=="defender"then
-    cur.pending_type="attacker"
-        elseif cur.pending_type == "attacker" then
-            cur.pending_type = "capture"
-        elseif cur.pending_type == "capture" then
-            cur.pending_type = "defender"
-        end
-        cur.pending_orientation = 0
-        if effects and effects.switch_mode then
-          sfx(effects.switch_mode)
-        end
+  if cur.control_state==0 and btnp(🅾️,i-1)and fa=="normal"then
+   cur.pending_type=cur.pending_type=="defender"and"attacker"or cur.pending_type=="attacker"and"capture"or"defender"
+   cur.pending_orientation = 0
+   if effects and effects.switch_mode then sfx(effects.switch_mode)end
+  end
+
+  p.capture_mode = (cur.pending_type == "capture")
+
+  if cur.control_state == 0 then
+   local spd=cursor_speed
+   if btn(⬅️,i-1)then cur.x=max(0,cur.x-spd)
+   elseif btnp(⬅️,i-1)then cur.x=max(0,cur.x-1)end
+   if btn(➡️,i-1)then cur.x=min(cur.x+spd,120)
+   elseif btnp(➡️,i-1)then cur.x=min(cur.x+1,120)end
+   if btn(⬆️,i-1)then cur.y=max(0,cur.y-spd)
+   elseif btnp(⬆️,i-1)then cur.y=max(0,cur.y-1)end
+   if btn(⬇️,i-1)then cur.y=min(cur.y+spd,120)
+   elseif btnp(⬇️,i-1)then cur.y=min(cur.y+1,120)end
+
+   if btnp(❎,i-1)then
+    if cur.pending_type=="capture"then
+     if attempt_capture(p,cur)then
+      cur.control_state,cur.return_cooldown=2,6
+      if original_update_game_logic_func then original_update_game_logic_func()end
+     end
+    else
+     cur.control_state=1
+     if effects and effects.enter_placement then sfx(effects.enter_placement)end
     end
-
-    if current_player_obj then
-        current_player_obj.capture_mode = (cur.pending_type == "capture")
-    end
-
-    if cur.control_state == CSTATE_MOVE_SELECT then
-      if btn(⬅️, i - 1) then 
-        cur.x = max(0, cur.x - cursor_speed) 
-      elseif btnp(⬅️, i - 1) then 
-        cur.x = max(0, cur.x - 1) 
-      end
-      
-      if btn(➡️, i - 1) then 
-        cur.x = min(cur.x + cursor_speed, 128 - 8) 
-      elseif btnp(➡️, i - 1) then 
-        cur.x = min(cur.x + 1, 128 - 8) 
-      end
-      
-      if btn(⬆️, i - 1) then 
-        cur.y = max(0, cur.y - cursor_speed) 
-      elseif btnp(⬆️, i - 1) then 
-        cur.y = max(0, cur.y - 1) 
-      end
-      
-      if btn(⬇️, i - 1) then 
-        cur.y = min(cur.y + cursor_speed, 128 - 8) 
-      elseif btnp(⬇️, i - 1) then 
-        cur.y = min(cur.y + 1, 128 - 8) 
-      end
-
-      if btnp(❎, i - 1) then
-        if cur.pending_type == "capture" then
-          if attempt_capture(current_player_obj, cur) then
-            cur.control_state = CSTATE_COOLDOWN; cur.return_cooldown = 6
-            if original_update_game_logic_func then original_update_game_logic_func() end
-          end
-        else
-          cur.control_state = CSTATE_ROTATE_PLACE
-          if effects and effects.enter_placement then
-            sfx(effects.enter_placement)
-          end
-        end
-      end
+   end
 
 
     elseif cur.control_state == CSTATE_ROTATE_PLACE then

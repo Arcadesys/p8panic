@@ -143,9 +143,8 @@ function attempt_capture(player_obj, cursor)
             
             if (dist_x*dist_x + dist_y*dist_y) < CAPTURE_RADIUS_SQUARED then
               local captured_color = attacker_to_capture:get_color()
-              player_obj:add_captured_piece(captured_color)
               if del(pieces, attacker_to_capture) then
-                -- printh("P" .. player_id .. " captured attacker (color: " .. captured_color .. ")")
+                player_obj:add_captured_piece(captured_color)
                 if effects and effects.capture then
                   sfx(effects.capture)
                 end
@@ -188,23 +187,21 @@ function init_cursors(num_players)
 
     if create_cursor then
       cursors[i] = create_cursor(i, sp.x, sp.y)
-    else
-      cursors[i] = {
-        id = i,
-        x = sp.x,
-        y = sp.y,
-        spawn_x = sp.x,
-        spawn_y = sp.y,
-        control_state = 0,
-        pending_type = "defender",
-        pending_color = 7,
-        pending_orientation = 0,
-        return_cooldown = 0,
-        color_select_idx = 1,
-        draw = function()
-          -- printh("Fallback cursor draw for P"..i)
-        end
-      }
+    else        cursors[i] = {
+          id = i,
+          x = sp.x,
+          y = sp.y,
+          spawn_x = sp.x,
+          spawn_y = sp.y,
+          control_state = 0,
+          pending_type = "defender",
+          pending_color = 7,
+          pending_orientation = 0,
+          return_cooldown = 0,
+          color_select_idx = 1,
+          draw = function()
+          end
+        }
     end
   end
 end
@@ -314,7 +311,6 @@ pyramid_rotation_z = 0
       music(-1)
     end
     local current_game_stash_size = STASH_SIZE
-    -- printh("GO_TO_STATE: CAPTURED STASH_SIZE="..current_game_stash_size)
 
     pieces = {}
     
@@ -541,23 +537,20 @@ function draw_playing_state_elements()
  for i=1,player_manager.get_player_count()do
   local p,c=player_manager.get_player(i),cursors[i]
   if p then
-   local s,m=tostr(p:get_score()),"?"
-   if c and c.pending_type then
-    if c.pending_type=="attacker"then m="A"
-    elseif c.pending_type=="defender"then m="D"
-    elseif c.pending_type=="capture"then m="C"end
-   end
-   local sm,w=s.." "..m,#(s.." "..m)*4
+   local s,m=tostr(p.score),c and(c.pending_type=="attacker"and"A"or c.pending_type=="defender"and"D"or c.pending_type=="capture"and"C")or"?"
+   local sm=s.." "..m
    local ax,ay=(i==2 or i==4)and 112 or 0,(i>=3)and 104 or 0
-   local tx=(i==1 or i==3)and ax+2 or ax+14-w
-   print(sm,tx,ay+2,p:get_color())
+   local tx=(i==1 or i==3)and ax+2 or ax+14-#sm*4
+   print(sm,tx,ay+2,p.color)
    local by,bh=ay+9,13
    for j=1,4 do
-    local col,cnt=player_manager.colors[j]or 0,p.stash[player_manager.colors[j]or 0]or 0
+    local col,cnt=player_manager.colors[j],p.stash[player_manager.colors[j]]or 0
     local h=flr(cnt/STASH_SIZE*bh)
-    local bx=((i==1 or i==3)and ax+1 or ax+11)+(j-1)*3
-    local y1,y2=(i<=2)and by or by+bh-h,(i<=2)and by+h-1 or by+bh-1
-    if h>0 then rectfill(bx,y1,bx+1,y2,col)end
+    if h>0 then
+     local bx=((i==1 or i==3)and ax+1 or ax+11)+(j-1)*3
+     local y1,y2=(i<=2)and by or by+bh-h,(i<=2)and by+h-1 or by+bh-1
+     rectfill(bx,y1,bx+1,y2,col)
+    end
    end
   end
  end
@@ -697,64 +690,37 @@ pyramid_rotation_y = 0
 pyramid_rotation_z = 0
 
 function draw_3d_pyramid(cx, cy, color)
-  -- Update all three rotation axes at much slower speeds for smooth motion
   pyramid_rotation_x += 0.005
   pyramid_rotation_y += 0.008
   pyramid_rotation_z += 0.003
   
-  -- Large pyramid vertices (scaled up for top 2/3 of screen)
-  local size = 30
-  local height = 25
+  local size,height = 30,25
   local vertices = {
-    {x = -size, y = 0, z = -size},    -- base vertex 1
-    {x = size, y = 0, z = -size},     -- base vertex 2
-    {x = size, y = 0, z = size},      -- base vertex 3
-    {x = -size, y = 0, z = size},     -- base vertex 4
-    {x = 0, y = -height, z = 0}       -- apex
+    {-size, 0, -size}, {size, 0, -size}, {size, 0, size}, {-size, 0, size}, {0, -height, 0}
   }
   
-  -- Rotation matrices for all three axes
-  local cos_x, sin_x = cos(pyramid_rotation_x), sin(pyramid_rotation_x)
-  local cos_y, sin_y = cos(pyramid_rotation_y), sin(pyramid_rotation_y)
-  local cos_z, sin_z = cos(pyramid_rotation_z), sin(pyramid_rotation_z)
+  local cx_cos,sx_sin,cy_cos,sy_sin,cz_cos,sz_sin = cos(pyramid_rotation_x),sin(pyramid_rotation_x),cos(pyramid_rotation_y),sin(pyramid_rotation_y),cos(pyramid_rotation_z),sin(pyramid_rotation_z)
   
   local projected = {}
   for i, v in ipairs(vertices) do
-    local x, y, z = v.x, v.y, v.z
+    local x,y,z = v[1],v[2],v[3]
     
-    -- Rotate around X axis
-    local y1 = y * cos_x - z * sin_x
-    local z1 = y * sin_x + z * cos_x
+    -- Combined rotation
+    local y1,z1 = y * cx_cos - z * sx_sin, y * sx_sin + z * cx_cos
+    local x2,z2 = x * cy_cos + z1 * sy_sin, -x * sy_sin + z1 * cy_cos
+    local x3,y3 = x2 * cz_cos - y1 * sz_sin, x2 * sz_sin + y1 * cz_cos
     
-    -- Rotate around Y axis
-    local x2 = x * cos_y + z1 * sin_y
-    local z2 = -x * sin_y + z1 * cos_y
-    
-    -- Rotate around Z axis
-    local x3 = x2 * cos_z - y1 * sin_z
-    local y3 = x2 * sin_z + y1 * cos_z
-    
-    -- Simple perspective projection
-    local distance = 100
-    local scale = distance / (distance + z2)
-    local px = cx + x3 * scale
-    local py = cy + y3 * scale + 20  -- offset down a bit in the top area
-    
-    projected[i] = {x = px, y = py, z = z2}
+    -- Projection
+    local scale = 100 / (100 + z2)
+    projected[i] = {x = cx + x3 * scale, y = cy + y3 * scale + 20}
   end
   
-  -- Draw pyramid faces with proper depth sorting
-  -- Base (square base for more impressive look)
-  line(projected[1].x, projected[1].y, projected[2].x, projected[2].y, color)
-  line(projected[2].x, projected[2].y, projected[3].x, projected[3].y, color)
-  line(projected[3].x, projected[3].y, projected[4].x, projected[4].y, color)
-  line(projected[4].x, projected[4].y, projected[1].x, projected[1].y, color)
-  
-  -- Side faces from base to apex
-  line(projected[1].x, projected[1].y, projected[5].x, projected[5].y, color)
-  line(projected[2].x, projected[2].y, projected[5].x, projected[5].y, color)
-  line(projected[3].x, projected[3].y, projected[5].x, projected[5].y, color)
-  line(projected[4].x, projected[4].y, projected[5].x, projected[5].y, color)
+  -- Draw pyramid
+  for i=1,4 do
+    local j = i%4+1
+    line(projected[i].x, projected[i].y, projected[j].x, projected[j].y, color)
+    line(projected[i].x, projected[i].y, projected[5].x, projected[5].y, color)
+  end
 end
 
 function _draw()
@@ -776,48 +742,48 @@ end
 -->8
 --player
 local Player={}Player.__index=Player
+local colors={12,8,11,10}
+local ghost_colors={1,9,3,4}
 function Player:new(id,s,c,gc,cpu)
- local base_delay = cpu and (120 + rnd(60)) or 0  -- 120-180 frames for CPU, 0 for humans
- local i={id=id,score=s or 0,color=c,ghost_color=gc,stash={},capture_mode=false,is_cpu=cpu or false,cpu_timer=rnd(base_delay),cpu_action_delay=base_delay}
+ local bd = cpu and (120 + rnd(60)) or 0
+ local i={id=id,score=s or 0,color=c,ghost_color=gc,stash={},capture_mode=false,is_cpu=cpu or false,cpu_timer=rnd(bd),cpu_action_delay=bd}
  i.stash[c]=STASH_SIZE or 6
  setmetatable(i,self)return i
 end
 function Player:get_score()return self.score end
-function Player:add_score(p)self.score=self.score+(p or 1)end
+function Player:add_score(p)self.score+=p or 1 end
 function Player:get_color()return self.color end
 function Player:get_ghost_color()return self.ghost_color end
 function Player:is_in_capture_mode()return self.capture_mode end
 function Player:toggle_capture_mode()self.capture_mode=not self.capture_mode end
 function Player:add_captured_piece(pc)
- if self.stash[pc]==nil then self.stash[pc]=0 end
- self.stash[pc]+=1
+ self.stash[pc]=(self.stash[pc]or 0)+1
 end
 function Player:get_captured_count(pc)return self.stash[pc]or 0 end
 function Player:has_piece_in_stash(pc)return(self.stash[pc]or 0)>0 end
 function Player:use_piece_from_stash(pc)
- if self:has_piece_in_stash(pc)then self.stash[pc]=self.stash[pc]-1 return true end
+ if self:has_piece_in_stash(pc)then self.stash[pc]-=1 return true end
  return false
 end
-player_manager.colors={[1]=12,[2]=8,[3]=11,[4]=10}
-player_manager.ghost_colors={[1]=1,[2]=9,[3]=3,[4]=4}
+player_manager.colors,player_manager.ghost_colors=colors,ghost_colors
 player_manager.max_players,player_manager.current_players=4,{}
 function player_manager.init_players(np)
- if np<1 or np>player_manager.max_players then return end
+ if np<1 or np>4 then return end
  player_manager.current_players={}
  for i=1,np do
-  local c,gc=player_manager.colors[i]or 7,player_manager.ghost_colors[i]or 1
+  local c,gc=colors[i]or 7,ghost_colors[i]or 1
   local cpu=(i>np-CPU_PLAYERS)
   player_manager.current_players[i]=Player:new(i,0,c,gc,cpu)
  end
 end
 function player_manager.get_player(pid)return player_manager.current_players[pid]end
 function player_manager.get_player_color(pid)
- local p=player_manager.get_player(pid)
- return p and p:get_color()or 7
+ local p=player_manager.current_players[pid]
+ return p and p.color or 7
 end
 function player_manager.get_player_ghost_color(pid)
- local p=player_manager.get_player(pid)
- return p and p:get_ghost_color()or 1
+ local p=player_manager.current_players[pid]
+ return p and p.ghost_color or 1
 end
 function player_manager.get_player_count()return #player_manager.current_players end
 -->8
@@ -899,70 +865,50 @@ function _score_defender(p_obj, player_manager_param)
 end
 
 function score_pieces()
-  -- Ensure required globals are available
-  local player_manager = player_manager
-  local ray_segment_intersect = ray_segment_intersect
-  local LASER_LEN = LASER_LEN
-  local add = add
+  local pm,rsif,ll,a=player_manager,ray_segment_intersect,LASER_LEN,add
   reset_player_scores()
   reset_piece_states_for_scoring()
 
   for _, attacker_obj in ipairs(pieces) do
-    if attacker_obj and attacker_obj.type == "attacker" then
-      local attacker_vertices = attacker_obj:get_draw_vertices()
-      if attacker_vertices and #attacker_vertices > 0 then
-        local apex = attacker_vertices[1]
-        local dir_x = cos(attacker_obj.orientation)
-        local dir_y = sin(attacker_obj.orientation)
-        local closest_t = LASER_LEN
-        local closest_piece = nil
-        -- Check all other pieces for intersection
+    if attacker_obj.type == "attacker" then
+      local av = attacker_obj:get_draw_vertices()
+      if av and #av > 0 then
+        local apex,dx,dy=av[1],cos(attacker_obj.orientation),sin(attacker_obj.orientation)
+        local closest_t,closest_piece=ll,nil
         for _, target_obj in ipairs(pieces) do
           if target_obj ~= attacker_obj then
-            local target_corners = target_obj:get_draw_vertices()
-            if target_corners and #target_corners > 0 then
-              for j = 1, #target_corners do
-                local k = (j % #target_corners) + 1
-                local ix, iy, t = ray_segment_intersect(apex.x, apex.y, dir_x, dir_y,
-                  target_corners[j].x, target_corners[j].y,
-                  target_corners[k].x, target_corners[k].y)
+            local tc = target_obj:get_draw_vertices()
+            if tc and #tc > 0 then
+              for j = 1, #tc do
+                local k = (j % #tc) + 1
+                local ix, iy, t = rsif(apex.x, apex.y, dx, dy, tc[j].x, tc[j].y, tc[k].x, tc[k].y)
                 if t and t >= 0 and t < closest_t then
-                  closest_t = t
-                  closest_piece = target_obj
+                  closest_t,closest_piece = t,target_obj
                 end
               end
             end
           end
         end
         if closest_piece then
-          _check_attacker_hit_piece(attacker_obj, closest_piece, player_manager, ray_segment_intersect, LASER_LEN, add)
+          _check_attacker_hit_piece(attacker_obj, closest_piece, pm, rsif, ll, a)
         end
       end
     end
   end
 
   for _, p_obj in ipairs(pieces) do
-    _score_defender(p_obj, player_manager)
+    _score_defender(p_obj, pm)
     if p_obj.type == "defender" then
-      p_obj.dbg_target_count = nil
-      -- Update defender state based on final hit count
-      if p_obj.hits >= 3 then
-        p_obj.state = "overcharged"
-      elseif p_obj.hits == 2 then
-        p_obj.state = "unsuccessful"
-      elseif p_obj.hits <= 1 then
-        p_obj.state = "successful"
-      end
+      local h=p_obj.hits
+      p_obj.state = h >= 3 and "overcharged" or h == 2 and "unsuccessful" or "successful"
     end
   end
 
-  local remaining_pieces = {}
+  local rp={}
   for _,p_obj in ipairs(pieces) do
-    if not p_obj.captured_flag then
-      add(remaining_pieces, p_obj)
-    end
+    if not p_obj.captured_flag then a(rp, p_obj) end
   end
-  pieces = remaining_pieces
+  pieces = rp
 end
 -->8
 --piece
@@ -1029,10 +975,10 @@ end
 
 function Attacker:draw()
  Piece.draw(self)
- local v,a=self:get_draw_vertices(),self.orientation
+ local v=self:get_draw_vertices()
  if not v or #v==0 then return end
- local dx,dy,lc,ht=cos(a),sin(a),self:get_color(),200
- local hx,hy=v[1].x+dx*ht,v[1].y+dy*ht
+ local dx,dy,lc=cos(self.orientation),sin(self.orientation),self:get_color()
+ local ht,hx,hy=200,v[1].x+dx*200,v[1].y+dy*200
  if pieces then
   for _,p in ipairs(pieces)do
    if p~=self then
@@ -1040,17 +986,18 @@ function Attacker:draw()
     for j=1,#pc do
      local k=(j%#pc)+1
      local ix,iy,t=ray_segment_intersect(v[1].x,v[1].y,dx,dy,pc[j].x,pc[j].y,pc[k].x,pc[k].y)
-     if t and t>=0 and t<ht then ht,hx,hy=t,ix,iy
-      if p.state=="unsuccessful"then lc=8 elseif p.state=="overcharged"then lc=10 end
+     if t and t>=0 and t<ht then 
+      ht,hx,hy=t,ix,iy
+      lc=p.state=="unsuccessful"and 8 or p.state=="overcharged"and 10 or lc
      end
     end
    end
   end
  end
- local ns,nl,tf=flr(ht/4),2,time()*20
+ local ns,tf=flr(ht/4),time()*20
  for i=0,ns-1 do
-  local st,et=(i*4+tf)%ht,nil
-  et=st+nl
+  local st=(i*4+tf)%ht
+  local et=st+2
   if et<=ht then
    line(v[1].x+dx*st,v[1].y+dy*st,v[1].x+dx*et,v[1].y+dy*et,lc)
   else
@@ -1103,82 +1050,48 @@ function create_piece(params)
   return piece_obj
 end
 -->8
---#globals effects sfx create_piece add pieces score_pieces printh ray_segment_intersect LASER_LEN
+--#globals effects sfx create_piece add pieces score_pieces ray_segment_intersect LASER_LEN
 function legal_placement(piece_params)
- local uz={{x1=0,y1=0,x2=15,y2=23},{x1=112,y1=0,x2=127,y2=23},{x1=0,y1=104,x2=15,y2=127},{x1=112,y1=104,x2=127,y2=127}}
+ local uz={{0,0,15,23},{112,0,127,23},{0,104,15,127},{112,104,127,127}}
  local tp=create_piece(piece_params)
  if not tp then return false end
- local function vs(a,b)return{x=a.x-b.x,y=a.y-b.y}end
  local function vd(a,b)return a.x*b.x+a.y*b.y end
  local function pr(vertices,ax)
-  if not vertices or #vertices==0 then return 0,0 end
   local mn,mx=vd(vertices[1],ax),vd(vertices[1],ax)
   for i=2,#vertices do local p=vd(vertices[i],ax)mn,mx=min(mn,p),max(mx,p)end
   return mn,mx
- end
- local function ga(vertices)
-  local ua={}
-  if not vertices or #vertices<2 then return ua end
-  for i=1,#vertices do
-   local p1,p2=vertices[i],vertices[(i%#vertices)+1]
-   local e=vs(p2,p1)
-   local n={x=-e.y,y=e.x}
-   local l=sqrt(n.x^2+n.y^2)
-   if l>0.0001 then
-    n.x,n.y=n.x/l,n.y/l
-    local u=true
-    for ea in all(ua)do if abs(vd(ea,n))>0.999 then u=false;break end end
-    if u then add(ua,n)end
-   end
-  end
-  return ua
  end
  local cs=tp:get_draw_vertices()
  if not cs or #cs==0 then return false end
  for c in all(cs)do
   if c.x<0 or c.x>128 or c.y<0 or c.y>128 then return false end
-  for z in all(uz)do if c.x>=z.x1 and c.x<=z.x2 and c.y>=z.y1 and c.y<=z.y2 then return false end end
+  for z in all(uz)do if c.x>=z[1] and c.x<=z[3] and c.y>=z[2] and c.y<=z[4] then return false end end
  end
  for _,ep in ipairs(pieces)do
   local ec=ep:get_draw_vertices()
-  if not ec or #ec==0 then goto nx end
-  local ca={}
-  for ax in all(ga(cs))do add(ca,ax)end
-  for ax in all(ga(ec))do add(ca,ax)end
-  if #ca==0 then
+  if ec and #ec>0 then
    local mn1,mx1,my1,my2=128,0,128,0
    for c in all(cs)do mn1,mx1,my1,my2=min(mn1,c.x),max(mx1,c.x),min(my1,c.y),max(my2,c.y)end
    local mn2,mx2,my3,my4=128,0,128,0
    for c in all(ec)do mn2,mx2,my3,my4=min(mn2,c.x),max(mx2,c.x),min(my3,c.y),max(my4,c.y)end
    if not(mx1<mn2 or mx2<mn1 or my2<my3 or my4<my1)then return false end
-   goto nx
   end
-  local col=true
-  for ax in all(ca)do
-   local mn1,mx1=pr(cs,ax)
-   local mn2,mx2=pr(ec,ax)
-   if mx1<mn2 or mx2<mn1 then col=false;break end
-  end
-  if col then return false end
-  ::nx::
  end
  if piece_params.type=="attacker"then
   local ap,dx,dy=cs[1],cos(piece_params.orientation),sin(piece_params.orientation)
-  local lhd=false
   for _,ep in ipairs(pieces)do
    if ep.type=="defender"then
     local dc=ep:get_draw_vertices()
-    if not dc or #dc==0 then goto nt end
-    for j=1,#dc do
-     local k=(j%#dc)+1
-     local ix,iy,t=ray_segment_intersect(ap.x,ap.y,dx,dy,dc[j].x,dc[j].y,dc[k].x,dc[k].y)
-     if t and t>=0 and t<=200 then lhd=true;break end
+    if dc and #dc>0 then
+     for j=1,#dc do
+      local k=(j%#dc)+1
+      local ix,iy,t=ray_segment_intersect(ap.x,ap.y,dx,dy,dc[j].x,dc[j].y,dc[k].x,dc[k].y)
+      if t and t>=0 and t<=200 then return true end
+     end
     end
    end
-   if lhd then break end
-   ::nt::
   end
-  if not lhd then return false end
+  return false
  end
  return true
 end
@@ -1200,12 +1113,10 @@ function place_piece(piece_params,player_obj)
     return false
    end
   else
-   printh("P"..player_obj.id.." doesn't have color "..pc.." in stash")
    if effects and effects.bad_placement then sfx(effects.bad_placement)end
    return false
   end
  else
-  printh("Placement not legal for P"..player_obj.id)
   if effects and effects.bad_placement then sfx(effects.bad_placement)end
   return false
  end
@@ -1217,88 +1128,57 @@ local CSTATE_MOVE_SELECT,CSTATE_ROTATE_PLACE,CSTATE_COOLDOWN=0,1,2
 function update_controls()
  for i,cur in ipairs(cursors)do
   local p=player_manager.get_player(i)
-  if not p then goto next_cursor_ctrl end
+  if not p or p.is_cpu then goto next_cursor_ctrl end
   
-  -- Skip controls for CPU players
-  if p.is_cpu then goto next_cursor_ctrl end
-  
-  local current_player_obj = p  -- Set the current player object
-  
-  local empty_stash=true
+  local es=true
   if p and p.stash then
-   for _,cnt in pairs(p.stash)do if cnt>0 then empty_stash=false end end
+   for _,cnt in pairs(p.stash)do if cnt>0 then es=false break end end
   end
-  local has_def=false
+  local hd=false
   if pieces then
    for _,po in pairs(pieces)do
-    if po.owner_id==i and po.type=="defender"and po.state=="successful"then has_def=true break end
+    if po.owner_id==i and po.type=="defender"and po.state=="successful"then hd=true break end
    end
   end
-  local forced="normal"
-  if empty_stash then
+  local fa="normal"
+  if es then
    cur.pending_type="capture"
-   forced="capture_only"
-  elseif not has_def then
+   fa="capture_only"
+  elseif not hd then
    cur.pending_type="defender"
    cur.pending_color=p:get_color()
-   forced="must_place_defender"
+   fa="must_place_defender"
   end
-  if cur.control_state==CSTATE_MOVE_SELECT and btnp(🅾️,i-1)and forced=="normal"then
-   if cur.pending_type=="defender"then
-    cur.pending_type="attacker"
-        elseif cur.pending_type == "attacker" then
-            cur.pending_type = "capture"
-        elseif cur.pending_type == "capture" then
-            cur.pending_type = "defender"
-        end
-        cur.pending_orientation = 0
-        if effects and effects.switch_mode then
-          sfx(effects.switch_mode)
-        end
+  if cur.control_state==0 and btnp(🅾️,i-1)and fa=="normal"then
+   cur.pending_type=cur.pending_type=="defender"and"attacker"or cur.pending_type=="attacker"and"capture"or"defender"
+   cur.pending_orientation = 0
+   if effects and effects.switch_mode then sfx(effects.switch_mode)end
+  end
+
+  p.capture_mode = (cur.pending_type == "capture")
+
+  if cur.control_state == 0 then
+   local spd=cursor_speed
+   if btn(⬅️,i-1)then cur.x=max(0,cur.x-spd)
+   elseif btnp(⬅️,i-1)then cur.x=max(0,cur.x-1)end
+   if btn(➡️,i-1)then cur.x=min(cur.x+spd,120)
+   elseif btnp(➡️,i-1)then cur.x=min(cur.x+1,120)end
+   if btn(⬆️,i-1)then cur.y=max(0,cur.y-spd)
+   elseif btnp(⬆️,i-1)then cur.y=max(0,cur.y-1)end
+   if btn(⬇️,i-1)then cur.y=min(cur.y+spd,120)
+   elseif btnp(⬇️,i-1)then cur.y=min(cur.y+1,120)end
+
+   if btnp(❎,i-1)then
+    if cur.pending_type=="capture"then
+     if attempt_capture(p,cur)then
+      cur.control_state,cur.return_cooldown=2,6
+      if original_update_game_logic_func then original_update_game_logic_func()end
+     end
+    else
+     cur.control_state=1
+     if effects and effects.enter_placement then sfx(effects.enter_placement)end
     end
-
-    if current_player_obj then
-        current_player_obj.capture_mode = (cur.pending_type == "capture")
-    end
-
-    if cur.control_state == CSTATE_MOVE_SELECT then
-      if btn(⬅️, i - 1) then 
-        cur.x = max(0, cur.x - cursor_speed) 
-      elseif btnp(⬅️, i - 1) then 
-        cur.x = max(0, cur.x - 1) 
-      end
-      
-      if btn(➡️, i - 1) then 
-        cur.x = min(cur.x + cursor_speed, 128 - 8) 
-      elseif btnp(➡️, i - 1) then 
-        cur.x = min(cur.x + 1, 128 - 8) 
-      end
-      
-      if btn(⬆️, i - 1) then 
-        cur.y = max(0, cur.y - cursor_speed) 
-      elseif btnp(⬆️, i - 1) then 
-        cur.y = max(0, cur.y - 1) 
-      end
-      
-      if btn(⬇️, i - 1) then 
-        cur.y = min(cur.y + cursor_speed, 128 - 8) 
-      elseif btnp(⬇️, i - 1) then 
-        cur.y = min(cur.y + 1, 128 - 8) 
-      end
-
-      if btnp(❎, i - 1) then
-        if cur.pending_type == "capture" then
-          if attempt_capture(current_player_obj, cur) then
-            cur.control_state = CSTATE_COOLDOWN; cur.return_cooldown = 6
-            if original_update_game_logic_func then original_update_game_logic_func() end
-          end
-        else
-          cur.control_state = CSTATE_ROTATE_PLACE
-          if effects and effects.enter_placement then
-            sfx(effects.enter_placement)
-          end
-        end
-      end
+   end
 
 
     elseif cur.control_state == CSTATE_ROTATE_PLACE then
@@ -1393,47 +1273,28 @@ end
 --cursor
 local dcp={control_state=0,pending_type="defender",pending_orientation=0.25,color_select_idx=1,return_cooldown=0}
 function create_cursor(player_id,initial_x,initial_y)
- local pc,pgc=7,7
- if player_manager and player_manager.get_player then
-  local p=player_manager.get_player(player_id)
-  if p then
-   if p.get_color then pc=p:get_color()end
-   if p.get_ghost_color then
-    local gcv=p:get_ghost_color()
-    if gcv then pgc=gcv end
-   end
-  end
- end
+ local p=player_manager and player_manager.get_player and player_manager.get_player(player_id)
+ local pc,pgc=p and p.color or 7,p and p.ghost_color or 7
  local cur={
   id=player_id,x=initial_x,y=initial_y,spawn_x=initial_x,spawn_y=initial_y,
-  control_state=dcp.control_state,pending_type=dcp.pending_type,
-  pending_orientation=dcp.pending_orientation,pending_color=pgc,
-  color_select_idx=dcp.color_select_idx,return_cooldown=dcp.return_cooldown,
+  control_state=0,pending_type="defender",pending_orientation=0.25,pending_color=pgc,
+  color_select_idx=1,return_cooldown=0,
   draw=function(self)
-   local cc,cp
-   if player_manager and player_manager.get_player then
-    cp=player_manager.get_player(self.id)
-    if cp and cp.get_color then cc=cp:get_color()end
-   end
-   if not cc then cc=self.pending_color end
+   local cp=player_manager and player_manager.get_player(self.id)
+   local cc=cp and cp.color or self.pending_color
    local cx,cy=self.x+4,self.y+4
    line(cx-2,cy-2,cx+2,cy+2,cc)line(cx-2,cy+2,cx+2,cy-2,cc)
-   if self.pending_type=="attacker"or self.pending_type=="defender"then
-    local gpp={owner_id=self.id,type=self.pending_type,position={x=self.x+4,y=self.y+4},
-     orientation=self.pending_orientation,color=self.pending_color,is_ghost=true}
-    local gp=create_piece(gpp)
+   if self.pending_type~="capture"then
+    local gp=create_piece({owner_id=self.id,type=self.pending_type,position={x=cx,y=cy},
+     orientation=self.pending_orientation,color=self.pending_color,is_ghost=true})
     if gp and gp.draw then gp:draw()end
    end
-   if cp and cp:is_in_capture_mode()then
-    if pieces then
-     for _,mp in ipairs(pieces)do
-      if mp.owner_id==self.id and mp.type=="defender"and mp.state=="overcharged"then
-       if mp.targeting_attackers and #mp.targeting_attackers>0 then
-        for _,atc in ipairs(mp.targeting_attackers)do
-         if atc and atc.position and atc.type=="attacker"then
-          circ(atc.position.x,atc.position.y,5,14)
-         end
-        end
+   if cp and cp.capture_mode and pieces then
+    for _,mp in ipairs(pieces)do
+     if mp.owner_id==self.id and mp.type=="defender"and mp.state=="overcharged"and mp.targeting_attackers then
+      for _,atc in ipairs(mp.targeting_attackers)do
+       if atc and atc.position and atc.type=="attacker"then
+        circ(atc.position.x,atc.position.y,5,14)
        end
       end
      end
@@ -1452,46 +1313,36 @@ function update_cpu_players()
    p.cpu_timer-=1
    if p.cpu_timer<=0 then
     cpu_act(p,c,i)
-    -- Randomize next action delay for more natural behavior
-    p.cpu_timer = p.cpu_action_delay + rnd(60) - 30  -- ±30 frame variance
+    p.cpu_timer = p.cpu_action_delay + rnd(60) - 30
    end
-   -- Update CPU movement towards target
    cpu_update_movement(p,c)
   end
  end
 end
 
 function cpu_update_movement(p,c)
- if not p.cpu_target_x or not p.cpu_target_y then return end
+ if not p.cpu_target_x then return end
  
  local dx,dy=p.cpu_target_x-c.x,p.cpu_target_y-c.y
- local dist=sqrt(dx*dx+dy*dy)
+ local dist=dx*dx+dy*dy
  
- if dist<2 then
-  -- Reached target, execute action
+ if dist<4 then
   if p.cpu_action=="place" then
    c.pending_type,c.pending_color,c.pending_orientation=p.cpu_place_type,p.cpu_place_color,p.cpu_place_orientation
    if place_piece({owner_id=p.id,type=p.cpu_place_type,position={x=c.x+4,y=c.y+4},orientation=p.cpu_place_orientation,color=p.cpu_place_color},p)then
     c.control_state,c.return_cooldown=2,6
    end
   elseif p.cpu_action=="capture" then
-   c.pending_type="capture"
-   p.capture_mode=true
+   c.pending_type,p.capture_mode="capture",true
    if attempt_capture(p,c)then c.control_state,c.return_cooldown=2,6 end
   end
-  -- Clear target and action
   p.cpu_target_x,p.cpu_target_y,p.cpu_action=nil,nil,nil
  else
-  -- Move towards target at slower CPU speed with some randomness
-  local base_speed = (cursor_speed or 2) * 0.7  -- 30% slower than humans
-  local move_speed = base_speed + rnd(0.6) - 0.3  -- ±0.3 speed variance
-  
+  local spd = (cursor_speed or 2) * 0.7 + rnd(0.6) - 0.3
   if abs(dx)>abs(dy)then
-   if dx>0 then c.x=min(c.x+move_speed,128-8)
-   else c.x=max(0,c.x-move_speed)end
+   c.x=dx>0 and min(c.x+spd,120)or max(0,c.x-spd)
   else
-   if dy>0 then c.y=min(c.y+move_speed,128-8)
-   else c.y=max(0,c.y-move_speed)end
+   c.y=dy>0 and min(c.y+spd,120)or max(0,c.y-spd)
   end
  end
 end
@@ -1534,7 +1385,8 @@ function cpu_set_defend_target(c,p,id,t)
   p.cpu_action="place"
   p.cpu_place_type="defender"
   p.cpu_place_color=p:get_color()
-  p.cpu_place_orientation=0
+  -- Add angular variance for defenders (±15 degrees)
+  p.cpu_place_orientation=(rnd(0.084)-0.042)
  end
 end
 
@@ -1543,7 +1395,7 @@ function cpu_set_place_target(c,p,id,piece_type)
  if piece_type=="defender" then
   pos=cpu_safe(id)
  else
-  pos=cpu_att_pos(id)
+  pos=cpu_att_pos_smart(id)
  end
  
  if pos then
@@ -1551,7 +1403,7 @@ function cpu_set_place_target(c,p,id,piece_type)
   p.cpu_action="place"
   p.cpu_place_type=piece_type
   p.cpu_place_color=cpu_color(p)
-  p.cpu_place_orientation=pos.o or 0
+  p.cpu_place_orientation=pos.o or (rnd(0.084)-0.042)
  end
 end
 
@@ -1566,18 +1418,24 @@ function cpu_threat(id)
 end
 
 function cpu_safe(id)
- for i=1,10 do
-  local x,y=32+rnd(64),32+rnd(64)
-  if cpu_ok(x,y,id)then return{x=x,y=y}end
+ for i=1,15 do  -- Try more positions for better placement
+  local x,y=28+rnd(72),28+rnd(72)  -- Slightly more centered placement
+  if cpu_ok(x,y,id)then return{x=x,y=y,o=rnd(0.042)-0.021}end  -- Small angular variance
  end
- return{x=64,y=64}
+ return{x=64,y=64,o=rnd(0.084)-0.042}  -- Fallback with variance
 end
 
 function cpu_safe_near(pos,id)
- for dx=-16,16,8 do for dy=-16,16,8 do
-  local x,y=pos.x+dx,pos.y+dy
-  if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then return{x=x,y=y}end
- end end
+ -- Try positions in expanding rings for better spatial distribution
+ for radius=8,24,4 do
+  for angle=0,7 do
+   local a=(angle/8)+rnd(0.125)-0.063  -- Angular variance
+   local x,y=pos.x+cos(a)*radius,pos.y+sin(a)*radius
+   if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then 
+    return{x=x,y=y,o=rnd(0.084)-0.042}  -- ±3 degree variance
+   end
+  end
+ end
  return cpu_safe(id)
 end
 
@@ -1593,11 +1451,62 @@ function cpu_att_pos(id)
  return cpu_safe(id)
 end
 
+function cpu_att_pos_smart(id)
+ local eds={}
+ for _,p in ipairs(pieces)do
+  if p.owner_id~=id and p.type=="defender"then add(eds,p)end
+ end
+ if #eds>0 then
+  local t=eds[flr(rnd(#eds))+1]
+  return cpu_target_smart(t.position,id)
+ end
+ return cpu_safe(id)
+end
+
+function cpu_target_smart(pos,id)
+ -- Try multiple angles and distances to avoid blocking friendly pieces
+ for attempt=1,12 do
+  local a=(attempt/12)+rnd(0.083)-0.042  -- Base angle with ±3 degree variance
+  local d=25+rnd(30)  -- Distance 25-55 pixels
+  local x,y=pos.x+cos(a)*d,pos.y+sin(a)*d
+  
+  if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id) then
+   -- Check if this position would block friendly attackers
+   if not cpu_blocks_friendly(x,y,a+0.5,id) then
+    return{x=x,y=y,o=a+0.5+rnd(0.042)-0.021}  -- ±2 degree final variance
+   end
+  end
+ end
+ -- Fallback to original method if smart placement fails
+ return cpu_target(pos,id)
+end
+
+function cpu_blocks_friendly(x,y,orientation,id)
+ local dx,dy=cos(orientation),sin(orientation)
+ -- Check if laser path would intersect friendly pieces
+ for _,p in ipairs(pieces)do
+  if p.owner_id==id and p.type=="attacker" then
+   local pv=p:get_draw_vertices()
+   if pv and #pv>0 then
+    for j=1,#pv do
+     local k=(j%#pv)+1
+     local ix,iy,t=ray_segment_intersect(x,y,dx,dy,pv[j].x,pv[j].y,pv[k].x,pv[k].y)
+     if t and t>=0 and t<=30 then return true end  -- Would block within 30 pixels
+    end
+   end
+  end
+ end
+ return false
+end
+
 function cpu_target(pos,id)
  for i=1,8 do
-  local a,d=i/8,30+rnd(20)
+  local a=(i/8)+rnd(0.125)-0.063  -- Base angle with ±4.5 degree variance
+  local d=30+rnd(20)
   local x,y=pos.x+cos(a)*d,pos.y+sin(a)*d
-  if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then return{x=x,y=y,o=a+0.5}end
+  if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then 
+   return{x=x,y=y,o=a+0.5+rnd(0.084)-0.042}  -- ±3 degree final orientation variance
+  end
  end
  return cpu_safe(id)
 end

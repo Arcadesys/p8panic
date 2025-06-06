@@ -5,46 +5,36 @@ function update_cpu_players()
    p.cpu_timer-=1
    if p.cpu_timer<=0 then
     cpu_act(p,c,i)
-    -- Randomize next action delay for more natural behavior
-    p.cpu_timer = p.cpu_action_delay + rnd(60) - 30  -- ±30 frame variance
+    p.cpu_timer = p.cpu_action_delay + rnd(60) - 30
    end
-   -- Update CPU movement towards target
    cpu_update_movement(p,c)
   end
  end
 end
 
 function cpu_update_movement(p,c)
- if not p.cpu_target_x or not p.cpu_target_y then return end
+ if not p.cpu_target_x then return end
  
  local dx,dy=p.cpu_target_x-c.x,p.cpu_target_y-c.y
- local dist=sqrt(dx*dx+dy*dy)
+ local dist=dx*dx+dy*dy
  
- if dist<2 then
-  -- Reached target, execute action
+ if dist<4 then
   if p.cpu_action=="place" then
    c.pending_type,c.pending_color,c.pending_orientation=p.cpu_place_type,p.cpu_place_color,p.cpu_place_orientation
    if place_piece({owner_id=p.id,type=p.cpu_place_type,position={x=c.x+4,y=c.y+4},orientation=p.cpu_place_orientation,color=p.cpu_place_color},p)then
     c.control_state,c.return_cooldown=2,6
    end
   elseif p.cpu_action=="capture" then
-   c.pending_type="capture"
-   p.capture_mode=true
+   c.pending_type,p.capture_mode="capture",true
    if attempt_capture(p,c)then c.control_state,c.return_cooldown=2,6 end
   end
-  -- Clear target and action
   p.cpu_target_x,p.cpu_target_y,p.cpu_action=nil,nil,nil
  else
-  -- Move towards target at slower CPU speed with some randomness
-  local base_speed = (cursor_speed or 2) * 0.7  -- 30% slower than humans
-  local move_speed = base_speed + rnd(0.6) - 0.3  -- ±0.3 speed variance
-  
+  local spd = (cursor_speed or 2) * 0.7 + rnd(0.6) - 0.3
   if abs(dx)>abs(dy)then
-   if dx>0 then c.x=min(c.x+move_speed,128-8)
-   else c.x=max(0,c.x-move_speed)end
+   c.x=dx>0 and min(c.x+spd,120)or max(0,c.x-spd)
   else
-   if dy>0 then c.y=min(c.y+move_speed,128-8)
-   else c.y=max(0,c.y-move_speed)end
+   c.y=dy>0 and min(c.y+spd,120)or max(0,c.y-spd)
   end
  end
 end
@@ -87,7 +77,8 @@ function cpu_set_defend_target(c,p,id,t)
   p.cpu_action="place"
   p.cpu_place_type="defender"
   p.cpu_place_color=p:get_color()
-  p.cpu_place_orientation=0
+  -- Add angular variance for defenders (±15 degrees)
+  p.cpu_place_orientation=(rnd(0.084)-0.042)
  end
 end
 
@@ -96,7 +87,7 @@ function cpu_set_place_target(c,p,id,piece_type)
  if piece_type=="defender" then
   pos=cpu_safe(id)
  else
-  pos=cpu_att_pos(id)
+  pos=cpu_att_pos_smart(id)
  end
  
  if pos then
@@ -104,7 +95,7 @@ function cpu_set_place_target(c,p,id,piece_type)
   p.cpu_action="place"
   p.cpu_place_type=piece_type
   p.cpu_place_color=cpu_color(p)
-  p.cpu_place_orientation=pos.o or 0
+  p.cpu_place_orientation=pos.o or (rnd(0.084)-0.042)
  end
 end
 
@@ -119,18 +110,24 @@ function cpu_threat(id)
 end
 
 function cpu_safe(id)
- for i=1,10 do
-  local x,y=32+rnd(64),32+rnd(64)
-  if cpu_ok(x,y,id)then return{x=x,y=y}end
+ for i=1,15 do  -- Try more positions for better placement
+  local x,y=28+rnd(72),28+rnd(72)  -- Slightly more centered placement
+  if cpu_ok(x,y,id)then return{x=x,y=y,o=rnd(0.042)-0.021}end  -- Small angular variance
  end
- return{x=64,y=64}
+ return{x=64,y=64,o=rnd(0.084)-0.042}  -- Fallback with variance
 end
 
 function cpu_safe_near(pos,id)
- for dx=-16,16,8 do for dy=-16,16,8 do
-  local x,y=pos.x+dx,pos.y+dy
-  if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then return{x=x,y=y}end
- end end
+ -- Try positions in expanding rings for better spatial distribution
+ for radius=8,24,4 do
+  for angle=0,7 do
+   local a=(angle/8)+rnd(0.125)-0.063  -- Angular variance
+   local x,y=pos.x+cos(a)*radius,pos.y+sin(a)*radius
+   if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then 
+    return{x=x,y=y,o=rnd(0.084)-0.042}  -- ±3 degree variance
+   end
+  end
+ end
  return cpu_safe(id)
 end
 
@@ -146,11 +143,62 @@ function cpu_att_pos(id)
  return cpu_safe(id)
 end
 
+function cpu_att_pos_smart(id)
+ local eds={}
+ for _,p in ipairs(pieces)do
+  if p.owner_id~=id and p.type=="defender"then add(eds,p)end
+ end
+ if #eds>0 then
+  local t=eds[flr(rnd(#eds))+1]
+  return cpu_target_smart(t.position,id)
+ end
+ return cpu_safe(id)
+end
+
+function cpu_target_smart(pos,id)
+ -- Try multiple angles and distances to avoid blocking friendly pieces
+ for attempt=1,12 do
+  local a=(attempt/12)+rnd(0.083)-0.042  -- Base angle with ±3 degree variance
+  local d=25+rnd(30)  -- Distance 25-55 pixels
+  local x,y=pos.x+cos(a)*d,pos.y+sin(a)*d
+  
+  if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id) then
+   -- Check if this position would block friendly attackers
+   if not cpu_blocks_friendly(x,y,a+0.5,id) then
+    return{x=x,y=y,o=a+0.5+rnd(0.042)-0.021}  -- ±2 degree final variance
+   end
+  end
+ end
+ -- Fallback to original method if smart placement fails
+ return cpu_target(pos,id)
+end
+
+function cpu_blocks_friendly(x,y,orientation,id)
+ local dx,dy=cos(orientation),sin(orientation)
+ -- Check if laser path would intersect friendly pieces
+ for _,p in ipairs(pieces)do
+  if p.owner_id==id and p.type=="attacker" then
+   local pv=p:get_draw_vertices()
+   if pv and #pv>0 then
+    for j=1,#pv do
+     local k=(j%#pv)+1
+     local ix,iy,t=ray_segment_intersect(x,y,dx,dy,pv[j].x,pv[j].y,pv[k].x,pv[k].y)
+     if t and t>=0 and t<=30 then return true end  -- Would block within 30 pixels
+    end
+   end
+  end
+ end
+ return false
+end
+
 function cpu_target(pos,id)
  for i=1,8 do
-  local a,d=i/8,30+rnd(20)
+  local a=(i/8)+rnd(0.125)-0.063  -- Base angle with ±4.5 degree variance
+  local d=30+rnd(20)
   local x,y=pos.x+cos(a)*d,pos.y+sin(a)*d
-  if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then return{x=x,y=y,o=a+0.5}end
+  if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then 
+   return{x=x,y=y,o=a+0.5+rnd(0.084)-0.042}  -- ±3 degree final orientation variance
+  end
  end
  return cpu_safe(id)
 end

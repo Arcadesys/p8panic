@@ -61,10 +61,10 @@ end
 
 function Attacker:draw()
  Piece.draw(self)
- local v,a=self:get_draw_vertices(),self.orientation
+ local v=self:get_draw_vertices()
  if not v or #v==0 then return end
- local dx,dy,lc,ht=cos(a),sin(a),self:get_color(),200
- local hx,hy=v[1].x+dx*ht,v[1].y+dy*ht
+ local dx,dy,lc=cos(self.orientation),sin(self.orientation),self:get_color()
+ local ht,hx,hy=200,v[1].x+dx*200,v[1].y+dy*200
  if pieces then
   for _,p in ipairs(pieces)do
    if p~=self then
@@ -72,17 +72,18 @@ function Attacker:draw()
     for j=1,#pc do
      local k=(j%#pc)+1
      local ix,iy,t=ray_segment_intersect(v[1].x,v[1].y,dx,dy,pc[j].x,pc[j].y,pc[k].x,pc[k].y)
-     if t and t>=0 and t<ht then ht,hx,hy=t,ix,iy
-      if p.state=="unsuccessful"then lc=8 elseif p.state=="overcharged"then lc=10 end
+     if t and t>=0 and t<ht then 
+      ht,hx,hy=t,ix,iy
+      lc=p.state=="unsuccessful"and 8 or p.state=="overcharged"and 10 or lc
      end
     end
    end
   end
  end
- local ns,nl,tf=flr(ht/4),2,time()*20
+ local ns,tf=flr(ht/4),time()*20
  for i=0,ns-1 do
-  local st,et=(i*4+tf)%ht,nil
-  et=st+nl
+  local st=(i*4+tf)%ht
+  local et=st+2
   if et<=ht then
    line(v[1].x+dx*st,v[1].y+dy*st,v[1].x+dx*et,v[1].y+dy*et,lc)
   else
