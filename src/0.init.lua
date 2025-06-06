@@ -139,8 +139,8 @@ function attempt_capture(player_obj, cursor)
             
             if (dist_x*dist_x + dist_y*dist_y) < CAPTURE_RADIUS_SQUARED then
               local captured_color = attacker_to_capture:get_color()
-              player_obj:add_captured_piece(captured_color)
               if del(pieces, attacker_to_capture) then
+                player_obj:add_captured_piece(captured_color)
                 -- printh("P" .. player_id .. " captured attacker (color: " .. captured_color .. ")")
                 if effects and effects.capture then
                   sfx(effects.capture)
