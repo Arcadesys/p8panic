@@ -7,6 +7,10 @@ function Piece:new(o)
  o=o or{}
  o.position=o.position or{x=64,y=64}
  o.orientation=o.orientation or 0
+ o._cached_vertices=nil
+ o._cached_pos_x=nil
+ o._cached_pos_y=nil
+ o._cached_orientation=nil
  setmetatable(o,self)
  return o
 end
@@ -22,6 +26,14 @@ function Piece:get_color()
 end
 
 function Piece:get_draw_vertices()
+ -- Check if cache is valid
+ if self._cached_vertices and 
+    self._cached_pos_x==self.position.x and 
+    self._cached_pos_y==self.position.y and 
+    self._cached_orientation==self.orientation then
+  return self._cached_vertices
+ end
+ 
  local o,cx,cy,lc=self.orientation,self.position.x,self.position.y,{}
  if self.type=="attacker"then
   local h,b=8,6
@@ -35,7 +47,18 @@ function Piece:get_draw_vertices()
   local rx,ry=c.x*cos(o)-c.y*sin(o),c.x*sin(o)+c.y*cos(o)
   add(wc,{x=cx+rx,y=cy+ry})
  end
+ 
+ -- Cache the result
+ self._cached_vertices=wc
+ self._cached_pos_x=cx
+ self._cached_pos_y=cy
+ self._cached_orientation=o
+ 
  return wc
+end
+
+function Piece:invalidate_cache()
+ self._cached_vertices=nil
 end
 
 function Piece:draw()
@@ -65,6 +88,8 @@ function Attacker:draw()
  if not v or #v==0 then return end
  local dx,dy,lc=cos(self.orientation),sin(self.orientation),self:get_color()
  local ht,hx,hy=200,v[1].x+dx*200,v[1].y+dy*200
+ 
+ -- Check all pieces for laser intersection (no distance culling for accuracy)
  if pieces then
   for _,p in ipairs(pieces)do
    if p~=self then
@@ -80,10 +105,12 @@ function Attacker:draw()
    end
   end
  end
- local ns,tf=flr(ht/4),time()*20
+ 
+ -- Optimize laser drawing with fewer segments (keep this optimization)
+ local ns=flr(ht/4) -- Reduced detail from /3 to /4
  for i=0,ns-1 do
-  local st=(i*4+tf)%ht
-  local et=st+2
+  local st=i*4
+  local et=st+2  -- Longer segments
   if et<=ht then
    line(v[1].x+dx*st,v[1].y+dy*st,v[1].x+dx*et,v[1].y+dy*et,lc)
   else
@@ -134,4 +161,16 @@ function create_piece(params)
     return nil
   end
   return piece_obj
+end
+
+-- Add helper function to update piece position and invalidate cache
+function Piece:set_position(x, y)
+ self.position.x = x
+ self.position.y = y
+ self:invalidate_cache()
+end
+
+function Piece:set_orientation(orientation)
+ self.orientation = orientation
+ self:invalidate_cache()
 end

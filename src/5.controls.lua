@@ -58,19 +58,19 @@ function update_controls()
 
     elseif cur.control_state == CSTATE_ROTATE_PLACE then
       local available_colors = {}
-      if forced_action_state == "must_place_defender" then
-        add(available_colors, current_player_obj:get_color())
+      if fa == "must_place_defender" then
+        add(available_colors, p:get_color())
         cur.color_select_idx = 1
       else
-        if current_player_obj and current_player_obj.stash then
-          for color, count in pairs(current_player_obj.stash) do
+        if p and p.stash then
+          for color, count in pairs(p.stash) do
             if count > 0 then add(available_colors, color) end
           end
         end
       end
       
-      if #available_colors == 0 and current_player_obj and current_player_obj:has_piece_in_stash(current_player_obj:get_color()) then
-         add(available_colors, current_player_obj:get_color())
+      if #available_colors == 0 and p and p:has_piece_in_stash(p:get_color()) then
+         add(available_colors, p:get_color())
       elseif #available_colors == 0 then
         cur.control_state = CSTATE_MOVE_SELECT
         goto next_cursor_ctrl
@@ -79,7 +79,7 @@ function update_controls()
       if cur.color_select_idx > #available_colors then cur.color_select_idx = 1 end
       if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
 
-      if forced_action_state ~= "must_place_defender" then
+      if fa ~= "must_place_defender" then
         if btnp(⬆️, i - 1) then
           cur.color_select_idx = cur.color_select_idx - 1
           if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
@@ -99,13 +99,13 @@ function update_controls()
         if cur.pending_orientation >= 1 then cur.pending_orientation = cur.pending_orientation - 1 end
       end
 
-      if forced_action_state == "must_place_defender" then
-        cur.pending_color = current_player_obj:get_color()
+      if fa == "must_place_defender" then
+        cur.pending_color = p:get_color()
       else
         if #available_colors > 0 then
-            cur.pending_color = available_colors[cur.color_select_idx] or current_player_obj:get_ghost_color()
+            cur.pending_color = available_colors[cur.color_select_idx] or p:get_ghost_color()
         else
-            cur.pending_color = current_player_obj:get_ghost_color() 
+            cur.pending_color = p:get_ghost_color() 
         end
       end
 
@@ -117,7 +117,7 @@ function update_controls()
           orientation = cur.pending_orientation,
           color = cur.pending_color
         }
-        if place_piece(piece_params, current_player_obj) then
+        if place_piece(piece_params, p) then
           cur.control_state = CSTATE_COOLDOWN
           cur.return_cooldown = 6
           if original_update_game_logic_func then original_update_game_logic_func() end
@@ -138,7 +138,7 @@ function update_controls()
         cur.y = cur.spawn_y
         cur.control_state = CSTATE_MOVE_SELECT
         cur.pending_type = "defender"
-        cur.pending_color = (current_player_obj and current_player_obj:get_ghost_color()) or 7
+        cur.pending_color = (p and p:get_ghost_color()) or 7
       end
     end
     ::next_cursor_ctrl::

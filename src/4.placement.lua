@@ -3,28 +3,33 @@ function legal_placement(piece_params)
  local uz={{0,0,15,23},{112,0,127,23},{0,104,15,127},{112,104,127,127}}
  local tp=create_piece(piece_params)
  if not tp then return false end
- local function vd(a,b)return a.x*b.x+a.y*b.y end
- local function pr(vertices,ax)
-  local mn,mx=vd(vertices[1],ax),vd(vertices[1],ax)
-  for i=2,#vertices do local p=vd(vertices[i],ax)mn,mx=min(mn,p),max(mx,p)end
-  return mn,mx
- end
+ 
  local cs=tp:get_draw_vertices()
  if not cs or #cs==0 then return false end
+ 
+ -- Quick bounds check first
+ local min_x, max_x, min_y, max_y = 128, 0, 128, 0
  for c in all(cs)do
+  min_x, max_x = min(min_x, c.x), max(max_x, c.x)
+  min_y, max_y = min(min_y, c.y), max(max_y, c.y)
   if c.x<0 or c.x>128 or c.y<0 or c.y>128 then return false end
   for z in all(uz)do if c.x>=z[1] and c.x<=z[3] and c.y>=z[2] and c.y<=z[4] then return false end end
  end
+ 
+ -- Spatial optimization: only check nearby pieces
  for _,ep in ipairs(pieces)do
-  local ec=ep:get_draw_vertices()
-  if ec and #ec>0 then
-   local mn1,mx1,my1,my2=128,0,128,0
-   for c in all(cs)do mn1,mx1,my1,my2=min(mn1,c.x),max(mx1,c.x),min(my1,c.y),max(my2,c.y)end
-   local mn2,mx2,my3,my4=128,0,128,0
-   for c in all(ec)do mn2,mx2,my3,my4=min(mn2,c.x),max(mx2,c.x),min(my3,c.y),max(my4,c.y)end
-   if not(mx1<mn2 or mx2<mn1 or my2<my3 or my4<my1)then return false end
+  -- Quick distance check first
+  local dist_sq = (ep.position.x - piece_params.position.x)^2 + (ep.position.y - piece_params.position.y)^2
+  if dist_sq < 400 then -- Only check pieces within 20 pixels
+   local ec=ep:get_draw_vertices()
+   if ec and #ec>0 then
+    local mn2,mx2,my3,my4=128,0,128,0
+    for c in all(ec)do mn2,mx2,my3,my4=min(mn2,c.x),max(mx2,c.x),min(my3,c.y),max(my4,c.y)end
+    if not(max_x<mn2 or mx2<min_x or max_y<my3 or my4<min_y)then return false end
+   end
   end
  end
+ 
  if piece_params.type=="attacker"then
   local ap,dx,dy=cs[1],cos(piece_params.orientation),sin(piece_params.orientation)
   for _,ep in ipairs(pieces)do
@@ -34,7 +39,7 @@ function legal_placement(piece_params)
      for j=1,#dc do
       local k=(j%#dc)+1
       local ix,iy,t=ray_segment_intersect(ap.x,ap.y,dx,dy,dc[j].x,dc[j].y,dc[k].x,dc[k].y)
-      if t and t>=0 and t<=200 then return true end
+      if t and t>=0 and t<=LASER_LEN then return true end
      end
     end
    end

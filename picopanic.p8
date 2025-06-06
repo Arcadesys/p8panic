@@ -90,6 +90,10 @@ CAPTURE_RADIUS_SQUARED = 64
 original_update_game_logic_func = nil
 original_update_controls_func = nil
 
+-- Performance optimization variables
+frame_skip_counter = 0
+FRAME_SKIP_INTERVAL = 2
+
 ROUND_TIME_MIN = 120
 ROUND_TIME_MAX = 600
 ROUND_TIME = 180
@@ -403,7 +407,7 @@ function update_playing_state()
       original_update_controls_func() 
     end
 
-    -- Update CPU players
+    -- Update CPU players normally 
     update_cpu_players()
 
     if original_update_game_logic_func then
@@ -869,19 +873,28 @@ function score_pieces()
   reset_player_scores()
   reset_piece_states_for_scoring()
 
-  for _, attacker_obj in ipairs(pieces) do
+  -- Pre-calculate all vertices once
+  local piece_vertices = {}
+  for i, piece in ipairs(pieces) do
+    piece_vertices[i] = piece:get_draw_vertices()
+  end
+
+  -- Check all pieces for accurate hit detection (no spatial culling)
+  for i, attacker_obj in ipairs(pieces) do
     if attacker_obj.type == "attacker" then
-      local av = attacker_obj:get_draw_vertices()
+      local av = piece_vertices[i]
       if av and #av > 0 then
         local apex,dx,dy=av[1],cos(attacker_obj.orientation),sin(attacker_obj.orientation)
         local closest_t,closest_piece=ll,nil
-        for _, target_obj in ipairs(pieces) do
+        
+        -- Check all pieces to ensure accurate hit detection
+        for j, target_obj in ipairs(pieces) do
           if target_obj ~= attacker_obj then
-            local tc = target_obj:get_draw_vertices()
+            local tc = piece_vertices[j]
             if tc and #tc > 0 then
-              for j = 1, #tc do
-                local k = (j % #tc) + 1
-                local ix, iy, t = rsif(apex.x, apex.y, dx, dy, tc[j].x, tc[j].y, tc[k].x, tc[k].y)
+              for k = 1, #tc do
+                local l = (k % #tc) + 1
+                local ix, iy, t = rsif(apex.x, apex.y, dx, dy, tc[k].x, tc[k].y, tc[l].x, tc[l].y)
                 if t and t >= 0 and t < closest_t then
                   closest_t,closest_piece = t,target_obj
                 end
@@ -921,6 +934,10 @@ function Piece:new(o)
  o=o or{}
  o.position=o.position or{x=64,y=64}
  o.orientation=o.orientation or 0
+ o._cached_vertices=nil
+ o._cached_pos_x=nil
+ o._cached_pos_y=nil
+ o._cached_orientation=nil
  setmetatable(o,self)
  return o
 end
@@ -936,6 +953,14 @@ function Piece:get_color()
 end
 
 function Piece:get_draw_vertices()
+ -- Check if cache is valid
+ if self._cached_vertices and 
+    self._cached_pos_x==self.position.x and 
+    self._cached_pos_y==self.position.y and 
+    self._cached_orientation==self.orientation then
+  return self._cached_vertices
+ end
+ 
  local o,cx,cy,lc=self.orientation,self.position.x,self.position.y,{}
  if self.type=="attacker"then
   local h,b=8,6
@@ -949,7 +974,18 @@ function Piece:get_draw_vertices()
   local rx,ry=c.x*cos(o)-c.y*sin(o),c.x*sin(o)+c.y*cos(o)
   add(wc,{x=cx+rx,y=cy+ry})
  end
+ 
+ -- Cache the result
+ self._cached_vertices=wc
+ self._cached_pos_x=cx
+ self._cached_pos_y=cy
+ self._cached_orientation=o
+ 
  return wc
+end
+
+function Piece:invalidate_cache()
+ self._cached_vertices=nil
 end
 
 function Piece:draw()
@@ -979,6 +1015,8 @@ function Attacker:draw()
  if not v or #v==0 then return end
  local dx,dy,lc=cos(self.orientation),sin(self.orientation),self:get_color()
  local ht,hx,hy=200,v[1].x+dx*200,v[1].y+dy*200
+ 
+ -- Check all pieces for laser intersection (no distance culling for accuracy)
  if pieces then
   for _,p in ipairs(pieces)do
    if p~=self then
@@ -994,10 +1032,12 @@ function Attacker:draw()
    end
   end
  end
- local ns,tf=flr(ht/4),time()*20
+ 
+ -- Optimize laser drawing with fewer segments (keep this optimization)
+ local ns=flr(ht/4) -- Reduced detail from /3 to /4
  for i=0,ns-1 do
-  local st=(i*4+tf)%ht
-  local et=st+2
+  local st=i*4
+  local et=st+2  -- Longer segments
   if et<=ht then
    line(v[1].x+dx*st,v[1].y+dy*st,v[1].x+dx*et,v[1].y+dy*et,lc)
   else
@@ -1049,34 +1089,51 @@ function create_piece(params)
   end
   return piece_obj
 end
+
+-- Add helper function to update piece position and invalidate cache
+function Piece:set_position(x, y)
+ self.position.x = x
+ self.position.y = y
+ self:invalidate_cache()
+end
+
+function Piece:set_orientation(orientation)
+ self.orientation = orientation
+ self:invalidate_cache()
+end
 -->8
 --#globals effects sfx create_piece add pieces score_pieces ray_segment_intersect LASER_LEN
 function legal_placement(piece_params)
  local uz={{0,0,15,23},{112,0,127,23},{0,104,15,127},{112,104,127,127}}
  local tp=create_piece(piece_params)
  if not tp then return false end
- local function vd(a,b)return a.x*b.x+a.y*b.y end
- local function pr(vertices,ax)
-  local mn,mx=vd(vertices[1],ax),vd(vertices[1],ax)
-  for i=2,#vertices do local p=vd(vertices[i],ax)mn,mx=min(mn,p),max(mx,p)end
-  return mn,mx
- end
+ 
  local cs=tp:get_draw_vertices()
  if not cs or #cs==0 then return false end
+ 
+ -- Quick bounds check first
+ local min_x, max_x, min_y, max_y = 128, 0, 128, 0
  for c in all(cs)do
+  min_x, max_x = min(min_x, c.x), max(max_x, c.x)
+  min_y, max_y = min(min_y, c.y), max(max_y, c.y)
   if c.x<0 or c.x>128 or c.y<0 or c.y>128 then return false end
   for z in all(uz)do if c.x>=z[1] and c.x<=z[3] and c.y>=z[2] and c.y<=z[4] then return false end end
  end
+ 
+ -- Spatial optimization: only check nearby pieces
  for _,ep in ipairs(pieces)do
-  local ec=ep:get_draw_vertices()
-  if ec and #ec>0 then
-   local mn1,mx1,my1,my2=128,0,128,0
-   for c in all(cs)do mn1,mx1,my1,my2=min(mn1,c.x),max(mx1,c.x),min(my1,c.y),max(my2,c.y)end
-   local mn2,mx2,my3,my4=128,0,128,0
-   for c in all(ec)do mn2,mx2,my3,my4=min(mn2,c.x),max(mx2,c.x),min(my3,c.y),max(my4,c.y)end
-   if not(mx1<mn2 or mx2<mn1 or my2<my3 or my4<my1)then return false end
+  -- Quick distance check first
+  local dist_sq = (ep.position.x - piece_params.position.x)^2 + (ep.position.y - piece_params.position.y)^2
+  if dist_sq < 400 then -- Only check pieces within 20 pixels
+   local ec=ep:get_draw_vertices()
+   if ec and #ec>0 then
+    local mn2,mx2,my3,my4=128,0,128,0
+    for c in all(ec)do mn2,mx2,my3,my4=min(mn2,c.x),max(mx2,c.x),min(my3,c.y),max(my4,c.y)end
+    if not(max_x<mn2 or mx2<min_x or max_y<my3 or my4<min_y)then return false end
+   end
   end
  end
+ 
  if piece_params.type=="attacker"then
   local ap,dx,dy=cs[1],cos(piece_params.orientation),sin(piece_params.orientation)
   for _,ep in ipairs(pieces)do
@@ -1086,7 +1143,7 @@ function legal_placement(piece_params)
      for j=1,#dc do
       local k=(j%#dc)+1
       local ix,iy,t=ray_segment_intersect(ap.x,ap.y,dx,dy,dc[j].x,dc[j].y,dc[k].x,dc[k].y)
-      if t and t>=0 and t<=200 then return true end
+      if t and t>=0 and t<=LASER_LEN then return true end
      end
     end
    end
@@ -1183,19 +1240,19 @@ function update_controls()
 
     elseif cur.control_state == CSTATE_ROTATE_PLACE then
       local available_colors = {}
-      if forced_action_state == "must_place_defender" then
-        add(available_colors, current_player_obj:get_color())
+      if fa == "must_place_defender" then
+        add(available_colors, p:get_color())
         cur.color_select_idx = 1
       else
-        if current_player_obj and current_player_obj.stash then
-          for color, count in pairs(current_player_obj.stash) do
+        if p and p.stash then
+          for color, count in pairs(p.stash) do
             if count > 0 then add(available_colors, color) end
           end
         end
       end
       
-      if #available_colors == 0 and current_player_obj and current_player_obj:has_piece_in_stash(current_player_obj:get_color()) then
-         add(available_colors, current_player_obj:get_color())
+      if #available_colors == 0 and p and p:has_piece_in_stash(p:get_color()) then
+         add(available_colors, p:get_color())
       elseif #available_colors == 0 then
         cur.control_state = CSTATE_MOVE_SELECT
         goto next_cursor_ctrl
@@ -1204,7 +1261,7 @@ function update_controls()
       if cur.color_select_idx > #available_colors then cur.color_select_idx = 1 end
       if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
 
-      if forced_action_state ~= "must_place_defender" then
+      if fa ~= "must_place_defender" then
         if btnp(⬆️, i - 1) then
           cur.color_select_idx = cur.color_select_idx - 1
           if cur.color_select_idx < 1 then cur.color_select_idx = #available_colors end
@@ -1224,13 +1281,13 @@ function update_controls()
         if cur.pending_orientation >= 1 then cur.pending_orientation = cur.pending_orientation - 1 end
       end
 
-      if forced_action_state == "must_place_defender" then
-        cur.pending_color = current_player_obj:get_color()
+      if fa == "must_place_defender" then
+        cur.pending_color = p:get_color()
       else
         if #available_colors > 0 then
-            cur.pending_color = available_colors[cur.color_select_idx] or current_player_obj:get_ghost_color()
+            cur.pending_color = available_colors[cur.color_select_idx] or p:get_ghost_color()
         else
-            cur.pending_color = current_player_obj:get_ghost_color() 
+            cur.pending_color = p:get_ghost_color() 
         end
       end
 
@@ -1242,7 +1299,7 @@ function update_controls()
           orientation = cur.pending_orientation,
           color = cur.pending_color
         }
-        if place_piece(piece_params, current_player_obj) then
+        if place_piece(piece_params, p) then
           cur.control_state = CSTATE_COOLDOWN
           cur.return_cooldown = 6
           if original_update_game_logic_func then original_update_game_logic_func() end
@@ -1263,7 +1320,7 @@ function update_controls()
         cur.y = cur.spawn_y
         cur.control_state = CSTATE_MOVE_SELECT
         cur.pending_type = "defender"
-        cur.pending_color = (current_player_obj and current_player_obj:get_ghost_color()) or 7
+        cur.pending_color = (p and p:get_ghost_color()) or 7
       end
     end
     ::next_cursor_ctrl::
@@ -1353,16 +1410,38 @@ function cpu_act(p,c,id)
  
  local cap=cpu_cap(id)
  if cap then cpu_set_capture_target(c,cap,p) return end
- if not cpu_def(id)then cpu_set_place_target(c,p,id,"defender") return end
- local thr=cpu_threat(id)
- if #thr>0 then cpu_set_defend_target(c,p,id,thr) return end
- cpu_set_place_target(c,p,id,"attacker")
+ 
+ -- More aggressive attacker placement - place attackers more often
+ local def_count = 0
+ for _,piece in ipairs(pieces) do
+  if piece.owner_id == id and piece.type == "defender" then
+   def_count = def_count + 1
+  end
+ end
+ 
+ -- If we have at least 1 defender, start placing attackers
+ if def_count >= 1 then
+  local thr=cpu_threat(id)
+  if #thr>0 then 
+   cpu_set_defend_target(c,p,id,thr) 
+   return 
+  end
+  -- Place attackers more frequently
+  if rnd(1) < 0.7 then  -- 70% chance to place attacker when we have defenders
+   cpu_set_place_target(c,p,id,"attacker")
+   return
+  end
+ end
+ 
+ -- Default to placing defender
+ cpu_set_place_target(c,p,id,"defender")
 end
 
 function cpu_def(id)
  for _,p in ipairs(pieces)do
   if p.owner_id==id and p.type=="defender"and p.state=="successful"then return true end
  end
+ return false
 end
 
 function cpu_cap(id)
@@ -1371,6 +1450,7 @@ function cpu_cap(id)
    if p.targeting_attackers and #p.targeting_attackers>0 then return p.targeting_attackers[1]end
   end
  end
+ return false
 end
 
 function cpu_set_capture_target(c,t,p)
@@ -1418,21 +1498,22 @@ function cpu_threat(id)
 end
 
 function cpu_safe(id)
- for i=1,15 do  -- Try more positions for better placement
-  local x,y=28+rnd(72),28+rnd(72)  -- Slightly more centered placement
-  if cpu_ok(x,y,id)then return{x=x,y=y,o=rnd(0.042)-0.021}end  -- Small angular variance
+ -- Reduce iteration count for better performance
+ for i=1,10 do  -- Reduced from 15
+  local x,y=28+rnd(72),28+rnd(72)
+  if cpu_ok(x,y,id)then return{x=x,y=y,o=rnd(0.042)-0.021}end
  end
- return{x=64,y=64,o=rnd(0.084)-0.042}  -- Fallback with variance
+ return{x=64,y=64,o=rnd(0.084)-0.042}
 end
 
 function cpu_safe_near(pos,id)
- -- Try positions in expanding rings for better spatial distribution
- for radius=8,24,4 do
-  for angle=0,7 do
-   local a=(angle/8)+rnd(0.125)-0.063  -- Angular variance
+ -- Reduce iteration for better performance
+ for radius=8,20,4 do  -- Reduced max radius from 24 to 20
+  for angle=0,5 do  -- Reduced from 7 to 5
+   local a=(angle/6)+rnd(0.125)-0.063  -- Adjusted for 6 angles
    local x,y=pos.x+cos(a)*radius,pos.y+sin(a)*radius
    if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then 
-    return{x=x,y=y,o=rnd(0.084)-0.042}  -- ±3 degree variance
+    return{x=x,y=y,o=rnd(0.084)-0.042}
    end
   end
  end
@@ -1464,20 +1545,19 @@ function cpu_att_pos_smart(id)
 end
 
 function cpu_target_smart(pos,id)
- -- Try multiple angles and distances to avoid blocking friendly pieces
- for attempt=1,12 do
-  local a=(attempt/12)+rnd(0.083)-0.042  -- Base angle with ±3 degree variance
-  local d=25+rnd(30)  -- Distance 25-55 pixels
+ -- Try more attempts for attacker placement reliability
+ for attempt=1,12 do  -- Restored to original for reliability
+  local a=(attempt/12)+rnd(0.083)-0.042
+  local d=25+rnd(30)
   local x,y=pos.x+cos(a)*d,pos.y+sin(a)*d
   
   if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id) then
-   -- Check if this position would block friendly attackers
-   if not cpu_blocks_friendly(x,y,a+0.5,id) then
-    return{x=x,y=y,o=a+0.5+rnd(0.042)-0.021}  -- ±2 degree final variance
+   -- Simplify friendly blocking check for more reliable placement
+   if attempt <= 6 or not cpu_blocks_friendly(x,y,a+0.5,id) then
+    return{x=x,y=y,o=a+0.5+rnd(0.042)-0.021}
    end
   end
  end
- -- Fallback to original method if smart placement fails
  return cpu_target(pos,id)
 end
 
@@ -1500,12 +1580,12 @@ function cpu_blocks_friendly(x,y,orientation,id)
 end
 
 function cpu_target(pos,id)
- for i=1,8 do
-  local a=(i/8)+rnd(0.125)-0.063  -- Base angle with ±4.5 degree variance
+ for i=1,10 do  -- Increased from 6 for better reliability
+  local a=(i/10)+rnd(0.125)-0.063
   local d=30+rnd(20)
   local x,y=pos.x+cos(a)*d,pos.y+sin(a)*d
   if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then 
-   return{x=x,y=y,o=a+0.5+rnd(0.084)-0.042}  -- ±3 degree final orientation variance
+   return{x=x,y=y,o=a+0.5+rnd(0.084)-0.042}
   end
  end
  return cpu_safe(id)

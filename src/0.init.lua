@@ -86,6 +86,10 @@ CAPTURE_RADIUS_SQUARED = 64
 original_update_game_logic_func = nil
 original_update_controls_func = nil
 
+-- Performance optimization variables
+frame_skip_counter = 0
+FRAME_SKIP_INTERVAL = 2
+
 ROUND_TIME_MIN = 120
 ROUND_TIME_MAX = 600
 ROUND_TIME = 180
@@ -399,7 +403,7 @@ function update_playing_state()
       original_update_controls_func() 
     end
 
-    -- Update CPU players
+    -- Update CPU players normally 
     update_cpu_players()
 
     if original_update_game_logic_func then

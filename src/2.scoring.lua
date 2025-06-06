@@ -79,19 +79,28 @@ function score_pieces()
   reset_player_scores()
   reset_piece_states_for_scoring()
 
-  for _, attacker_obj in ipairs(pieces) do
+  -- Pre-calculate all vertices once
+  local piece_vertices = {}
+  for i, piece in ipairs(pieces) do
+    piece_vertices[i] = piece:get_draw_vertices()
+  end
+
+  -- Check all pieces for accurate hit detection (no spatial culling)
+  for i, attacker_obj in ipairs(pieces) do
     if attacker_obj.type == "attacker" then
-      local av = attacker_obj:get_draw_vertices()
+      local av = piece_vertices[i]
       if av and #av > 0 then
         local apex,dx,dy=av[1],cos(attacker_obj.orientation),sin(attacker_obj.orientation)
         local closest_t,closest_piece=ll,nil
-        for _, target_obj in ipairs(pieces) do
+        
+        -- Check all pieces to ensure accurate hit detection
+        for j, target_obj in ipairs(pieces) do
           if target_obj ~= attacker_obj then
-            local tc = target_obj:get_draw_vertices()
+            local tc = piece_vertices[j]
             if tc and #tc > 0 then
-              for j = 1, #tc do
-                local k = (j % #tc) + 1
-                local ix, iy, t = rsif(apex.x, apex.y, dx, dy, tc[j].x, tc[j].y, tc[k].x, tc[k].y)
+              for k = 1, #tc do
+                local l = (k % #tc) + 1
+                local ix, iy, t = rsif(apex.x, apex.y, dx, dy, tc[k].x, tc[k].y, tc[l].x, tc[l].y)
                 if t and t >= 0 and t < closest_t then
                   closest_t,closest_piece = t,target_obj
                 end

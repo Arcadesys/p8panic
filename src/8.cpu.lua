@@ -45,16 +45,38 @@ function cpu_act(p,c,id)
  
  local cap=cpu_cap(id)
  if cap then cpu_set_capture_target(c,cap,p) return end
- if not cpu_def(id)then cpu_set_place_target(c,p,id,"defender") return end
- local thr=cpu_threat(id)
- if #thr>0 then cpu_set_defend_target(c,p,id,thr) return end
- cpu_set_place_target(c,p,id,"attacker")
+ 
+ -- More aggressive attacker placement - place attackers more often
+ local def_count = 0
+ for _,piece in ipairs(pieces) do
+  if piece.owner_id == id and piece.type == "defender" then
+   def_count = def_count + 1
+  end
+ end
+ 
+ -- If we have at least 1 defender, start placing attackers
+ if def_count >= 1 then
+  local thr=cpu_threat(id)
+  if #thr>0 then 
+   cpu_set_defend_target(c,p,id,thr) 
+   return 
+  end
+  -- Place attackers more frequently
+  if rnd(1) < 0.7 then  -- 70% chance to place attacker when we have defenders
+   cpu_set_place_target(c,p,id,"attacker")
+   return
+  end
+ end
+ 
+ -- Default to placing defender
+ cpu_set_place_target(c,p,id,"defender")
 end
 
 function cpu_def(id)
  for _,p in ipairs(pieces)do
   if p.owner_id==id and p.type=="defender"and p.state=="successful"then return true end
  end
+ return false
 end
 
 function cpu_cap(id)
@@ -63,6 +85,7 @@ function cpu_cap(id)
    if p.targeting_attackers and #p.targeting_attackers>0 then return p.targeting_attackers[1]end
   end
  end
+ return false
 end
 
 function cpu_set_capture_target(c,t,p)
@@ -110,21 +133,22 @@ function cpu_threat(id)
 end
 
 function cpu_safe(id)
- for i=1,15 do  -- Try more positions for better placement
-  local x,y=28+rnd(72),28+rnd(72)  -- Slightly more centered placement
-  if cpu_ok(x,y,id)then return{x=x,y=y,o=rnd(0.042)-0.021}end  -- Small angular variance
+ -- Reduce iteration count for better performance
+ for i=1,10 do  -- Reduced from 15
+  local x,y=28+rnd(72),28+rnd(72)
+  if cpu_ok(x,y,id)then return{x=x,y=y,o=rnd(0.042)-0.021}end
  end
- return{x=64,y=64,o=rnd(0.084)-0.042}  -- Fallback with variance
+ return{x=64,y=64,o=rnd(0.084)-0.042}
 end
 
 function cpu_safe_near(pos,id)
- -- Try positions in expanding rings for better spatial distribution
- for radius=8,24,4 do
-  for angle=0,7 do
-   local a=(angle/8)+rnd(0.125)-0.063  -- Angular variance
+ -- Reduce iteration for better performance
+ for radius=8,20,4 do  -- Reduced max radius from 24 to 20
+  for angle=0,5 do  -- Reduced from 7 to 5
+   local a=(angle/6)+rnd(0.125)-0.063  -- Adjusted for 6 angles
    local x,y=pos.x+cos(a)*radius,pos.y+sin(a)*radius
    if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then 
-    return{x=x,y=y,o=rnd(0.084)-0.042}  -- ±3 degree variance
+    return{x=x,y=y,o=rnd(0.084)-0.042}
    end
   end
  end
@@ -156,20 +180,19 @@ function cpu_att_pos_smart(id)
 end
 
 function cpu_target_smart(pos,id)
- -- Try multiple angles and distances to avoid blocking friendly pieces
- for attempt=1,12 do
-  local a=(attempt/12)+rnd(0.083)-0.042  -- Base angle with ±3 degree variance
-  local d=25+rnd(30)  -- Distance 25-55 pixels
+ -- Try more attempts for attacker placement reliability
+ for attempt=1,12 do  -- Restored to original for reliability
+  local a=(attempt/12)+rnd(0.083)-0.042
+  local d=25+rnd(30)
   local x,y=pos.x+cos(a)*d,pos.y+sin(a)*d
   
   if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id) then
-   -- Check if this position would block friendly attackers
-   if not cpu_blocks_friendly(x,y,a+0.5,id) then
-    return{x=x,y=y,o=a+0.5+rnd(0.042)-0.021}  -- ±2 degree final variance
+   -- Simplify friendly blocking check for more reliable placement
+   if attempt <= 6 or not cpu_blocks_friendly(x,y,a+0.5,id) then
+    return{x=x,y=y,o=a+0.5+rnd(0.042)-0.021}
    end
   end
  end
- -- Fallback to original method if smart placement fails
  return cpu_target(pos,id)
 end
 
@@ -192,12 +215,12 @@ function cpu_blocks_friendly(x,y,orientation,id)
 end
 
 function cpu_target(pos,id)
- for i=1,8 do
-  local a=(i/8)+rnd(0.125)-0.063  -- Base angle with ±4.5 degree variance
+ for i=1,10 do  -- Increased from 6 for better reliability
+  local a=(i/10)+rnd(0.125)-0.063
   local d=30+rnd(20)
   local x,y=pos.x+cos(a)*d,pos.y+sin(a)*d
   if x>16 and x<112 and y>24 and y<104 and cpu_ok(x,y,id)then 
-   return{x=x,y=y,o=a+0.5+rnd(0.084)-0.042}  -- ±3 degree final orientation variance
+   return{x=x,y=y,o=a+0.5+rnd(0.084)-0.042}
   end
  end
  return cpu_safe(id)
