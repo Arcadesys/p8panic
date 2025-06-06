@@ -1,5 +1,5 @@
 author = "the Arcades"
-cart = "p_8_panic.p8"
+cart = "picopanic.p8"
 description = "A game of tactical geometry."
 name = "p8panic"
 open_pico = true

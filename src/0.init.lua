@@ -1,53 +1,34 @@
--- effects table for sound effects
--- fill in as you add sfx to your cart
-
-music_enabled = true
-effects = {
-  attacker_placement = 56,
-  defender_placement = 57,
-  overcharge = 58,
-  capture = 59,
-  bad_placement = 60,
-  gameover_timer = 61,
-  switch_mode = 57,
-  enter_placement = 49,
-  exit_placement = 50
-}
-
--- sprite table for game elements
-sprites = {
-  defender_successful = {6, 22, 38, 54, 38, 22},    -- 1 tile check mark
-  defender_unsuccessful = {4, 20, 36, 52, 36, 20},  -- 1 tile X
-  defender_overcharged = {5, 21, 37, 53, 37, 21} -- four frame animation of purple orb
-}
+music_enabled=true
+cursor_speed=2
+rotation_speed=0.01
+effects={attacker_placement=56,defender_placement=57,overcharge=58,capture=59,bad_placement=60,gameover_timer=61,switch_mode=57,enter_placement=49,exit_placement=50}
+sprites={defender_successful={6,22,38,54,38,22},defender_unsuccessful={4,20,36,52,36,20},defender_overcharged={5,21,37,53,37,21}}
 
 function finish_game_menuitem()
-  if current_game_state == GAME_STATE_PLAYING then
-    if score_pieces then score_pieces() end
-    current_game_state = GAME_STATE_GAMEOVER
-    GAME_TIMER = 0
-    gameover_timer = 2
-    -- play gameover sound and start music fade
-    sfx(effects.gameover_timer)
-    gameover_music_fade_start = true
-  end
+ if current_game_state==GAME_STATE_PLAYING then
+  if score_pieces then score_pieces()end
+  current_game_state=GAME_STATE_GAMEOVER
+  GAME_TIMER=0
+  gameover_timer=2
+  sfx(effects.gameover_timer)
+  gameover_music_fade_start=true
+ end
 end
 
-gameover_timer = 2
-gameover_music_fade_start = false
+gameover_timer=2
+gameover_music_fade_start=false
+pre_game_state=nil
+pre_game_start_t=0
+pre_game_sequence={"3...","2...","1..."}
 
-pre_game_state = nil
-pre_game_start_t = 0
-pre_game_sequence = {"3...", "2...", "1..."}
-
-function draw_centered_sequence(seq, start_t, color)
-  local elapsed = time() - start_t
-  local idx = flr(elapsed) + 1
-  if idx <= #seq then
-    local s = seq[idx]
-    print(s, 64 - (#s * 2), 64, color or 7)
-    return false
-  end
+function draw_centered_sequence(seq,start_t,color)
+ local elapsed=time()-start_t
+ local idx=flr(elapsed)+1
+ if idx<=#seq then
+  local s=seq[idx]
+  print(s,64-(#s*2),64,color or 7)
+  return false
+ end
   return true
 end
 
@@ -94,7 +75,8 @@ end
 
 player_manager = {}
 STASH_SIZE = 6
-PLAYER_COUNT = 2
+PLAYER_COUNT = 4
+CPU_PLAYERS = 3
 create_piece = nil
 pieces = {}
 LASER_LEN = 60
@@ -384,52 +366,32 @@ end
 
 
 function update_menu_state()
-  if not menu_selection then menu_selection = 1 end
-
-  if btnp(⬆️) then
-    menu_selection = max(1, menu_selection - 1)
-  elseif btnp(⬇️) then
-    menu_selection = min(5, menu_selection + 1) -- Increased to 5 for new music option
+ if not menu_selection then menu_selection=1 end
+ if btnp(⬆️)then menu_selection=max(1,menu_selection-1)
+ elseif btnp(⬇️)then menu_selection=min(6,menu_selection+1)end
+ if menu_selection==1 then
+  if btnp(⬅️)then STASH_SIZE=max(3,STASH_SIZE-1)
+  elseif btnp(➡️)then STASH_SIZE=min(10,STASH_SIZE+1)end
+ elseif menu_selection==2 then
+  if btnp(⬅️)then PLAYER_COUNT=max(1,PLAYER_COUNT-1) CPU_PLAYERS=min(CPU_PLAYERS,PLAYER_COUNT)
+  elseif btnp(➡️)then PLAYER_COUNT=min(4,PLAYER_COUNT+1)end
+ elseif menu_selection==3 then
+  if btnp(⬅️)then CPU_PLAYERS=max(0,CPU_PLAYERS-1)
+  elseif btnp(➡️)then CPU_PLAYERS=min(PLAYER_COUNT,CPU_PLAYERS+1)end
+ elseif menu_selection==4 then
+  if btnp(⬅️)then ROUND_TIME=max(ROUND_TIME_MIN,ROUND_TIME-30)
+  elseif btnp(➡️)then ROUND_TIME=min(ROUND_TIME_MAX,ROUND_TIME+30)end
+ elseif menu_selection==5 then
+  if btnp(⬅️)or btnp(➡️)then
+   music_enabled=not music_enabled
+   if not music_enabled then music(-1)
+   else if current_game_state==GAME_STATE_PLAYING then music(0,0.5)end end
   end
-
-  if menu_selection == 1 then
-    if btnp(⬅️) then
-      STASH_SIZE = max(3, STASH_SIZE - 1)
-    elseif btnp(➡️) then
-      STASH_SIZE = min(10, STASH_SIZE + 1)
-    end
-  elseif menu_selection == 2 then
-    if btnp(⬅️) then
-      PLAYER_COUNT = max(2, PLAYER_COUNT - 1)
-    elseif btnp(➡️) then
-      PLAYER_COUNT = min(4, PLAYER_COUNT + 1)
-    end
-  elseif menu_selection == 3 then
-    if btnp(⬅️) then
-      ROUND_TIME = max(ROUND_TIME_MIN, ROUND_TIME - 30)
-    elseif btnp(➡️) then
-      ROUND_TIME = min(ROUND_TIME_MAX, ROUND_TIME + 30)
-    end
-  elseif menu_selection == 4 then -- Music toggle
-    if btnp(⬅️) or btnp(➡️) then
-      music_enabled = not music_enabled
-      if not music_enabled then
-        music(-1) -- stop music
-      else
-        if current_game_state == GAME_STATE_PLAYING then
-          music(0,0.5)
-        end
-      end
-    end
-  end
-
-  if btnp(❎) or btnp(🅾️) then
-    if menu_selection == 5 then
-      go_to_state(GAME_STATE_TUTORIAL)
-    else
-      go_to_state(GAME_STATE_PLAYING)
-    end
-  end
+ end
+ if btnp(❎)or btnp(🅾️)then
+  if menu_selection==6 then go_to_state(GAME_STATE_TUTORIAL)
+  else go_to_state(GAME_STATE_PLAYING)end
+ end
 end
 
 
@@ -439,15 +401,15 @@ function update_playing_state()
   if pre_game_state ~= 'countdown' then
     if original_update_controls_func then 
       original_update_controls_func() 
-    else 
     end
+
+    -- Update CPU players
+    update_cpu_players()
 
     if original_update_game_logic_func then
       if type(original_update_game_logic_func) == "function" then
         original_update_game_logic_func()
-      else
       end
-    else 
     end
   end
 
@@ -531,45 +493,25 @@ function init_starfield()
   end
 end
 
-function update_starfield()
-  for star in all(stars) do
-    star.y += star.speed
-    if star.y > 128 then
-      star.y = -star.size
-      star.x = rnd(128)
-    end
-  end
-end
+function draw_menu_state_elements()
+ print("pico panic",32,20,7)
+ print("a game from the arcades",18,32,7) 
 
-function draw_starfield()
-  for star in all(stars) do
-    if star.size == 1 then
-      pset(star.x, star.y, star.color)
-    else
-      circfill(star.x, star.y, star.size - 1, star.color)
-    end
-  end
-end
-
-function draw_menu_state()
-  print("pico panic", 32, 20, 7)
-  print("a game from the arcades", 18, 32, 7) 
-  print("PRESS X OR O", 32, 48, 8)
-  print("TO START", 42, 56, 8)
-  if not menu_selection then menu_selection = 1 end
-  local stash_color = (menu_selection == 1) and 7 or 11
-  local player_color = (menu_selection == 2) and 7 or 11
-  local timer_color = (menu_selection == 3) and 7 or 11
-  local music_color = (menu_selection == 4) and 7 or 11
-  local tutorial_color = (menu_selection == 5) and 7 or 11
-
-  print("STASH SIZE: "..STASH_SIZE, 28, 70, stash_color)
-  print("PLAYERS: "..PLAYER_COUNT, 28, 80, player_color)
-  local minstr = flr(ROUND_TIME/60)
-  local secstr = (ROUND_TIME%60 < 10 and "0" or "")..(ROUND_TIME%60)
-  print("ROUND TIME: "..minstr..":"..secstr, 28, 90, timer_color)
-  print("MUSIC: "..(music_enabled and "ON" or "OFF"), 28, 100, music_color)
-  print("HOW TO PLAY", 28, 110, tutorial_color)
+ if not menu_selection then menu_selection=1 end
+ local c1,c2,c3,c4,c5,c6=11,11,11,11,11,11
+ if menu_selection==1 then c1=7
+ elseif menu_selection==2 then c2=7
+ elseif menu_selection==3 then c3=7
+ elseif menu_selection==4 then c4=7
+ elseif menu_selection==5 then c5=7
+ elseif menu_selection==6 then c6=7 end
+ print("STASH SIZE: "..STASH_SIZE,28,70,c1)
+ print("PLAYERS: "..PLAYER_COUNT,28,80,c2)
+ print("CPU PLAYERS: "..CPU_PLAYERS,28,90,c3)
+ local m,s=flr(ROUND_TIME/60),ROUND_TIME%60
+ print("ROUND TIME: "..m..":"..(s<10 and"0"or"")..s,28,100,c4)
+ print("MUSIC: "..(music_enabled and"ON"or"OFF"),28,110,c5)
+ print("HOW TO PLAY",28,120,c6)
 end
 
 function draw_playing_state_elements()
@@ -592,96 +534,30 @@ function draw_playing_state_elements()
     local FONT_WIDTH = 4 -- Standard Pico-8 font width per char
     local FONT_HEIGHT = 5 -- Standard Pico-8 font character height
     local UI_BOX_SIZE = 24 -- Each player UI box is 16x24 pixels (2x3 tiles)
-    local TEXT_TO_BARS_GAP = 2 -- Vertical gap between text line and stash bars (1 pixel clearance)
-
-    local STASH_BAR_WIDTH = 2 -- Width of each individual stash bar (2 pixels wide)
-    local STASH_BAR_SPACING = 1 -- Horizontal space between stash bars
-    local NUM_STASH_DISPLAY_COLORS = 4 -- How many stash colors to display as bars
-
-    for i=1,player_manager.get_player_count() do
-      local p = player_manager.get_player(i)
-      local cur = cursors[i]
-      if p then
-        local s = tostr(p:get_score())
-        local mode_letter = "?"
-        if cur and cur.pending_type then
-          if cur.pending_type == "attacker" then mode_letter = "A"
-          elseif cur.pending_type == "defender" then mode_letter = "D"
-          elseif cur.pending_type == "capture" then mode_letter = "C"
-          end
-        end
-        local s_mode = s.." "..mode_letter
-        local score_text_width = #s_mode * FONT_WIDTH
-
-        -- Overlay box is 2x3 tiles = 16x24 px. We'll use 2px margin inside.
-        local UI_BOX_WIDTH = 16 -- Actual width of UI box
-        local anchor_x = (i==2 or i==4) and (128 - UI_BOX_WIDTH) or 0  -- Use actual width
-        local anchor_y = (i>=3) and (128 - 24) or 0          -- 24px height for 3 tiles
-
-        -- Render score and mode text
-        local text_y_pos = anchor_y + 2 -- 2px margin from top
-        local text_x_pos
-        if i == 1 or i == 3 then -- Left-side players (P1, P3): left-align text
-          text_x_pos = anchor_x + 2 -- 2px margin from left
-        else -- Right-side players (P2, P4): right-align text
-          text_x_pos = anchor_x + UI_BOX_WIDTH - score_text_width - 2 -- 2px margin from right
-        end
-        print(s_mode, text_x_pos, text_y_pos, p:get_color())
-
-        -- Render stash bars
-        local bars_area_y_start = anchor_y + FONT_HEIGHT + TEXT_TO_BARS_GAP + 1 -- Extra 1 pixel below score
-        local bars_area_height = UI_BOX_SIZE - (FONT_HEIGHT + TEXT_TO_BARS_GAP + 1) -- Adjusted for extra gap
-        local max_bar_height = bars_area_height - 3 -- Reserve 3px padding at top when at max
-
-        if bars_area_height >= 1 then -- Only draw if there's space
-          local total_stash_bars_width = NUM_STASH_DISPLAY_COLORS * STASH_BAR_WIDTH + (NUM_STASH_DISPLAY_COLORS - 1) * STASH_BAR_SPACING
-          
-          local bars_block_start_x
-          if i == 1 or i == 3 then -- Left-side players: left-align bars
-            bars_block_start_x = anchor_x + 1 -- 1 pixel padding from screen edge
-          else -- Right-side players: right-align bars
-            bars_block_start_x = anchor_x + UI_BOX_WIDTH - total_stash_bars_width - 1 -- Use correct box width
-          end
-
-          for j = 1, NUM_STASH_DISPLAY_COLORS do
-            local stash_color_for_bar = player_manager.colors[j] or 0 -- Get actual color ID
-            local count_in_stash = p.stash[stash_color_for_bar] or 0
-            
-            local bar_pixel_height = flr(count_in_stash / STASH_SIZE * max_bar_height) -- Use max_bar_height instead of bars_area_height
-            bar_pixel_height = mid(0, bar_pixel_height, max_bar_height) -- Clamp to max_bar_height
-
-            local current_bar_x = bars_block_start_x + (j - 1) * (STASH_BAR_WIDTH + STASH_BAR_SPACING)
-            
-            -- For players 1 and 2: bars grow downwards from top (0 is uppermost)
-            -- For players 3 and 4: bars grow upwards from bottom (traditional)
-            local current_bar_y_top, current_bar_y_bottom
-            if i == 1 or i == 2 then
-              -- Bars grow downwards: 0 is at the top, bars extend downward
-              current_bar_y_top = bars_area_y_start
-              current_bar_y_bottom = current_bar_y_top + bar_pixel_height - 1
-            else
-              -- Bars grow upwards: align to bottom of bars area
-              current_bar_y_top = bars_area_y_start + (bars_area_height - bar_pixel_height)
-              current_bar_y_bottom = current_bar_y_top + bar_pixel_height - 1
-            end
-            
-            if bar_pixel_height > 0 then
-              rectfill(current_bar_x, current_bar_y_top, current_bar_x + STASH_BAR_WIDTH - 1, current_bar_y_bottom, stash_color_for_bar)
-            else
-              -- Draw a small line for an empty stash of this color
-              local empty_bar_line_y
-              if i == 1 or i == 2 then
-                empty_bar_line_y = bars_area_y_start -- Top for downward-growing bars
-              else
-                empty_bar_line_y = bars_area_y_start + bars_area_height - 1 -- Bottom for upward-growing bars
-              end
-              line(current_bar_x, empty_bar_line_y, current_bar_x + STASH_BAR_WIDTH - 1, empty_bar_line_y, 1) -- Dark color for empty
-            end
-          end
-        end
-      end
-    end
+ for i=1,player_manager.get_player_count()do
+  local p,c=player_manager.get_player(i),cursors[i]
+  if p then
+   local s,m=tostr(p:get_score()),"?"
+   if c and c.pending_type then
+    if c.pending_type=="attacker"then m="A"
+    elseif c.pending_type=="defender"then m="D"
+    elseif c.pending_type=="capture"then m="C"end
+   end
+   local sm,w=s.." "..m,#(s.." "..m)*4
+   local ax,ay=(i==2 or i==4)and 112 or 0,(i>=3)and 104 or 0
+   local tx=(i==1 or i==3)and ax+2 or ax+14-w
+   print(sm,tx,ay+2,p:get_color())
+   local by,bh=ay+9,13
+   for j=1,4 do
+    local col,cnt=player_manager.colors[j]or 0,p.stash[player_manager.colors[j]or 0]or 0
+    local h=flr(cnt/STASH_SIZE*bh)
+    local bx=((i==1 or i==3)and ax+1 or ax+11)+(j-1)*3
+    local y1,y2=(i<=2)and by or by+bh-h,(i<=2)and by+h-1 or by+bh-1
+    if h>0 then rectfill(bx,y1,bx+1,y2,col)end
+   end
   end
+ end
+end
 end
 
 
@@ -883,7 +759,7 @@ function _draw()
   
   if current_game_state == GAME_STATE_MENU then
     map(0, 0, 0, 0, 16, 16)
-    draw_menu_state()
+    draw_menu_state_elements()
   elseif current_game_state == GAME_STATE_PLAYING then
     map(0, 0, 0, 0, 16, 16)
     draw_playing_state_elements()

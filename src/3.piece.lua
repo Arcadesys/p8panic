@@ -1,76 +1,41 @@
-Piece = {}
-Piece.__index = Piece
-
-Attacker = {}
-Attacker.__index = Attacker
-setmetatable(Attacker, {__index = Piece})
-
-Defender = {}
-Defender.__index = Defender
-setmetatable(Defender, {__index = Piece})
-
-DEFENDER_WIDTH = 8
-DEFENDER_HEIGHT = 8
-local ATTACKER_TRIANGLE_HEIGHT = 8
-local ATTACKER_TRIANGLE_BASE = 6
-
-local cos, sin = cos, sin
-local max, min = max, min
-local sqrt, abs = sqrt, abs
+Piece={}Piece.__index=Piece
+Attacker={}Attacker.__index=Attacker setmetatable(Attacker,{__index=Piece})
+Defender={}Defender.__index=Defender setmetatable(Defender,{__index=Piece})
+local cos,sin,max,min,sqrt,abs=cos,sin,max,min,sqrt,abs
 
 function Piece:new(o)
-  o = o or {}
-  o.position = o.position or {x=64, y=64}
-  o.orientation = o.orientation or 0
-  setmetatable(o, self)
-  return o
+ o=o or{}
+ o.position=o.position or{x=64,y=64}
+ o.orientation=o.orientation or 0
+ setmetatable(o,self)
+ return o
 end
 
 function Piece:get_color()
-  if self.is_ghost and self.ghost_color_override then
-    return self.ghost_color_override
-  end
-  if self.color then
-    return self.color
-  end
-  if self.owner_id then
-    local owner_player = player_manager.get_player(self.owner_id)
-    if owner_player then
-      return owner_player:get_color()
-    end
-  end
-  return 7
+ if self.is_ghost and self.ghost_color_override then return self.ghost_color_override end
+ if self.color then return self.color end
+ if self.owner_id then
+  local owner_player=player_manager.get_player(self.owner_id)
+  if owner_player then return owner_player:get_color()end
+ end
+ return 7
 end
 
 function Piece:get_draw_vertices()
-  local o = self.orientation
-  local cx = self.position.x
-  local cy = self.position.y
-  local local_corners = {}
-
-  if self.type == "attacker" then
-    local h = ATTACKER_TRIANGLE_HEIGHT
-    local b = ATTACKER_TRIANGLE_BASE
-    add(local_corners, {x = h/2, y = 0})
-    add(local_corners, {x = -h/2, y = b/2})
-    add(local_corners, {x = -h/2, y = -b/2})
-  else
-    local w, h = DEFENDER_WIDTH, DEFENDER_HEIGHT
-    local hw = w / 2
-    local hh = h / 2
-    add(local_corners, {x = -hw, y = -hh})
-    add(local_corners, {x = hw, y = -hh})
-    add(local_corners, {x = hw, y = hh})
-    add(local_corners, {x = -hw, y = hh})
-  end
-
-  local world_corners = {}
-  for lc in all(local_corners) do
-    local rotated_x = lc.x * cos(o) - lc.y * sin(o)
-    local rotated_y = lc.x * sin(o) + lc.y * cos(o)
-    add(world_corners, {x = cx + rotated_x, y = cy + rotated_y})
-  end
-  return world_corners
+ local o,cx,cy,lc=self.orientation,self.position.x,self.position.y,{}
+ if self.type=="attacker"then
+  local h,b=8,6
+  add(lc,{x=h/2,y=0})add(lc,{x=-h/2,y=b/2})add(lc,{x=-h/2,y=-b/2})
+ else
+  local w=4
+  add(lc,{x=-w,y=-w})add(lc,{x=w,y=-w})add(lc,{x=w,y=w})add(lc,{x=-w,y=w})
+ end
+ local wc={}
+ for c in all(lc)do
+  local rx,ry=c.x*cos(o)-c.y*sin(o),c.x*sin(o)+c.y*cos(o)
+  add(wc,{x=cx+rx,y=cy+ry})
+ end
+ return wc
 end
 
 function Piece:draw()
@@ -95,83 +60,37 @@ function Attacker:new(o)
 end
 
 function Attacker:draw()
-  Piece.draw(self)
-
-  local vertices = self:get_draw_vertices()
-  if not vertices or #vertices == 0 then return end
-  local apex = vertices[1]
-
-  local dir_x = cos(self.orientation)
-  local dir_y = sin(self.orientation)
-  local laser_color = self:get_color()
-  local laser_end_x = apex.x + dir_x * LASER_LEN
-  local laser_end_y = apex.y + dir_y * LASER_LEN
-  local closest_hit_t = LASER_LEN
-
-  local hit_piece_state = nil
-  local hit_piece_type = nil
-
-  if pieces then
-    for _, other_piece in ipairs(pieces) do
-      if other_piece ~= self then
-        local piece_corners = other_piece:get_draw_vertices()
-        for j = 1, #piece_corners do
-          local k = (j % #piece_corners) + 1
-          local ix, iy, t = ray_segment_intersect(
-            apex.x, apex.y, dir_x, dir_y,
-            piece_corners[j].x, piece_corners[j].y, piece_corners[k].x, piece_corners[k].y
-          )
-          if t and t >= 0 and t < closest_hit_t then
-            closest_hit_t = t
-            laser_end_x = ix
-            laser_end_y = iy
-            hit_piece_state = other_piece.state
-            hit_piece_type = other_piece.type
-          end
-        end
-      end
+ Piece.draw(self)
+ local v,a=self:get_draw_vertices(),self.orientation
+ if not v or #v==0 then return end
+ local dx,dy,lc,ht=cos(a),sin(a),self:get_color(),200
+ local hx,hy=v[1].x+dx*ht,v[1].y+dy*ht
+ if pieces then
+  for _,p in ipairs(pieces)do
+   if p~=self then
+    local pc=p:get_draw_vertices()
+    for j=1,#pc do
+     local k=(j%#pc)+1
+     local ix,iy,t=ray_segment_intersect(v[1].x,v[1].y,dx,dy,pc[j].x,pc[j].y,pc[k].x,pc[k].y)
+     if t and t>=0 and t<ht then ht,hx,hy=t,ix,iy
+      if p.state=="unsuccessful"then lc=8 elseif p.state=="overcharged"then lc=10 end
+     end
     end
+   end
   end
-
-  if hit_piece_state == "unsuccessful" then
-    laser_color = 8
-  elseif hit_piece_state == "overcharged" then
-    laser_color = 10
+ end
+ local ns,nl,tf=flr(ht/4),2,time()*20
+ for i=0,ns-1 do
+  local st,et=(i*4+tf)%ht,nil
+  et=st+nl
+  if et<=ht then
+   line(v[1].x+dx*st,v[1].y+dy*st,v[1].x+dx*et,v[1].y+dy*et,lc)
+  else
+   line(v[1].x+dx*st,v[1].y+dy*st,hx,hy,lc)
+   local sl=et-ht
+   if sl>0 then line(v[1].x,v[1].y,v[1].x+dx*sl,v[1].y+dy*sl,lc)end
   end
-
-  local ant_spacing = 4
-  local ant_length = 2
-  local num_ants = flr(closest_hit_t / ant_spacing)
-  local time_factor = time() * 20
-
-  for i = 0, num_ants - 1 do
-    local ant_start_t = (i * ant_spacing + time_factor) % closest_hit_t
-    local ant_end_t = ant_start_t + ant_length
-    
-    if ant_end_t <= closest_hit_t then
-      local ant_start_x = apex.x + dir_x * ant_start_t
-      local ant_start_y = apex.y + dir_y * ant_start_t
-      local ant_end_x = apex.x + dir_x * ant_end_t
-      local ant_end_y = apex.y + dir_y * ant_end_t
-      line(ant_start_x, ant_start_y, ant_end_x, ant_end_y, laser_color)
-    else
-      local segment1_end_t = closest_hit_t
-      local segment1_start_x = apex.x + dir_x * ant_start_t
-      local segment1_start_y = apex.y + dir_y * ant_start_t
-      local segment1_end_x = apex.x + dir_x * segment1_end_t
-      local segment1_end_y = apex.y + dir_y * segment1_end_t
-      line(segment1_start_x, segment1_start_y, segment1_end_x, segment1_end_y, laser_color)
-      
-      local segment2_len = ant_end_t - closest_hit_t
-      if segment2_len > 0 then
-        local segment2_start_x = apex.x
-        local segment2_start_y = apex.y
-        local segment2_end_x = apex.x + dir_x * segment2_len
-        local segment2_end_y = apex.y + dir_y * segment2_len
-        line(segment2_start_x, segment2_start_y, segment2_end_x, segment2_end_y, laser_color)
-      end
-    end
-  end
+ end
 end
 
 function Defender:new(o)
@@ -184,41 +103,24 @@ function Defender:new(o)
 end
 
 function Defender:draw()
-  local vertices = self:get_draw_vertices()
-  local color = self:get_color()
-  if #vertices == 4 then
-    line(vertices[1].x, vertices[1].y, vertices[2].x, vertices[2].y, color)
-    line(vertices[2].x, vertices[2].y, vertices[3].x, vertices[3].y, color)
-    line(vertices[3].x, vertices[3].y, vertices[4].x, vertices[4].y, color)
-    line(vertices[4].x, vertices[4].y, vertices[1].x, vertices[1].y, color)
+ local v,c=self:get_draw_vertices(),self:get_color()
+ if #v==4 then
+  for i=1,4 do line(v[i].x,v[i].y,v[(i%4)+1].x,v[(i%4)+1].y,c)end
+ end
+ local cx,cy=self.position.x,self.position.y
+ if self.state=="successful"then
+  if sprites and sprites.defender_successful then
+   spr(sprites.defender_successful[flr(time()*8)%#sprites.defender_successful+1],cx-4,cy-4)
   end
-
-  -- draw status indicator in the center
-  local cx = self.position.x
-  local cy = self.position.y
-  
-  if self.state == "successful" then
-    -- draw animated check mark sprite
-    if sprites and sprites.defender_successful then
-      local frame_idx = flr(time() * 8) % #sprites.defender_successful + 1
-      local sprite_id = sprites.defender_successful[frame_idx]
-      spr(sprite_id, cx - 4, cy - 4)
-    end
-  elseif self.state == "unsuccessful" then
-    -- draw animated X sprite
-    if sprites and sprites.defender_unsuccessful then
-      local frame_idx = flr(time() * 8) % #sprites.defender_unsuccessful + 1
-      local sprite_id = sprites.defender_unsuccessful[frame_idx]
-      spr(sprite_id, cx - 4, cy - 4)
-    end
-  elseif self.state == "overcharged" then
-    -- draw animated purple orb
-    if sprites and sprites.defender_overcharged then
-      local frame_idx = flr(time() * 8) % #sprites.defender_overcharged + 1
-      local sprite_id = sprites.defender_overcharged[frame_idx]
-      spr(sprite_id, cx - 4, cy - 4)
-    end
+ elseif self.state=="unsuccessful"then
+  if sprites and sprites.defender_unsuccessful then
+   spr(sprites.defender_unsuccessful[flr(time()*8)%#sprites.defender_unsuccessful+1],cx-4,cy-4)
   end
+ elseif self.state=="overcharged"then
+  if sprites and sprites.defender_overcharged then
+   spr(sprites.defender_overcharged[flr(time()*8)%#sprites.defender_overcharged+1],cx-4,cy-4)
+  end
+ end
 end
 
 function create_piece(params)

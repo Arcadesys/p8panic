@@ -1,0 +1,12 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Pico Panic Game",
+			"type": "shell",
+			"command": "cd /Users/austen/code/p8panic && pico8 picopanic.p8",
+			"group": "test",
+			"isBackground": true
+		}
+	]
+}

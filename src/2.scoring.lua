@@ -1,61 +1,55 @@
 function reset_player_scores()
-  if player_manager and player_manager.current_players then
-    for _, player_obj in ipairs(player_manager.current_players) do
-      if player_obj then
-        player_obj.score = 0
-      end
-    end
+ if player_manager and player_manager.current_players then
+  for _,p in ipairs(player_manager.current_players)do
+   if p then p.score=0 end
   end
+ end
 end
 
 function reset_piece_states_for_scoring()
-  for _, p_obj in ipairs(pieces) do
-    if p_obj then
-      p_obj.hits = 0
-      p_obj.targeting_attackers = {}
-      p_obj.dbg_target_count = nil
-      -- Reset defender state to default - it will be recalculated based on actual hits
-      if p_obj.type == "defender" then
-        p_obj.state = "successful"
-      end
-    end
+ for _,p in ipairs(pieces)do
+  if p then
+   p.hits=0
+   p.targeting_attackers={}
+   p.dbg_target_count=nil
+   if p.type=="defender"then p.state="successful"end
   end
+ end
 end
 
-function _check_attacker_hit_piece(attacker_obj, target_obj, player_manager_param, ray_segment_intersect_func, current_laser_len, add_func)
-  local attacker_vertices = attacker_obj:get_draw_vertices()
-  if not attacker_vertices or #attacker_vertices == 0 then return end
-  local apex = attacker_vertices[1]
-  local dir_x = cos(attacker_obj.orientation)
-  local dir_y = sin(attacker_obj.orientation)
+function _check_attacker_hit_piece(a,t,pm,rsif,cll,af)
+ local av=a:get_draw_vertices()
+ if not av or #av==0 then return end
+ local apex=av[1]
+ local dx,dy=cos(a.orientation),sin(a.orientation)
 
-  local target_corners = target_obj:get_draw_vertices()
+  local target_corners = t:get_draw_vertices()
   if not target_corners or #target_corners == 0 then return end
 
   for j = 1, #target_corners do
     local k = (j % #target_corners) + 1
-    local ix, iy, t = ray_segment_intersect_func(apex.x, apex.y, dir_x, dir_y,
+    local ix, iy, hit_t = rsif(apex.x, apex.y, dx, dy,
                                                  target_corners[j].x, target_corners[j].y,
                                                  target_corners[k].x, target_corners[k].y)
-    if t and t >= 0 and t <= current_laser_len then
-      target_obj.hits = (target_obj.hits or 0) + 1
-      target_obj.targeting_attackers = target_obj.targeting_attackers or {}
-      add_func(target_obj.targeting_attackers, attacker_obj)
+    if hit_t and hit_t >= 0 and hit_t <= cll then
+      t.hits = (t.hits or 0) + 1
+      t.targeting_attackers = t.targeting_attackers or {}
+      af(t.targeting_attackers, a)
 
-      local attacker_player = player_manager_param.get_player(attacker_obj.owner_id)
-      local target_player = player_manager_param.get_player(target_obj.owner_id)
+      local attacker_player = pm.get_player(a.owner_id)
+      local target_player = pm.get_player(t.owner_id)
 
-      if attacker_player and target_player and attacker_obj.owner_id ~= target_obj.owner_id then
+      if attacker_player and target_player and a.owner_id ~= t.owner_id then
         attacker_player:add_score(1)
       end
 
-      if target_obj.type == "defender" then
-        if target_obj.hits >= 3 then
-          target_obj.state = "overcharged"
-        elseif target_obj.hits == 2 then
-          target_obj.state = "unsuccessful"
-        elseif target_obj.hits == 1 then
-          target_obj.state = "successful"
+      if t.type == "defender" then
+        if t.hits >= 3 then
+          t.state = "overcharged"
+        elseif t.hits == 2 then
+          t.state = "unsuccessful"
+        elseif t.hits == 1 then
+          t.state = "successful"
         end
       end
       return true
