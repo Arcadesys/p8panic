@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+
+# PICO-8 build artifacts
+*.p8.png
+*.p8.rom
+
+# picotool
+*.p8.bak
+
+# Logs
+*.log
